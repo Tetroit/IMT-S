@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace ProceduralGeneration
 {
@@ -10,7 +11,13 @@ namespace ProceduralGeneration
         private MeshRenderer _meshRenderer;
         [SerializeField] private ChunkGenerator _chunkGenerator;
         [SerializeField] private Transform _camera;
+        [SerializeField] private GameObject _tilePrefab;
 
+        [Header("Mesh config")]
+        [Range(1,16)]
+        [SerializeField] private int _tileSubdivision = 4;
+        [Min(0.01f)]    
+        [SerializeField] private float _uvScale = 1;
 
         void Awake()
         {
@@ -24,33 +31,55 @@ namespace ProceduralGeneration
         public void CreateMesh()
         {
             var tiles = _chunkGenerator.GetCoordsInRenderDistance(_camera.position);
-            List<Vector3> vertices = new List<Vector3>();
-            List<int> triangles = new List<int>();
-            List<Vector3> normals = new List<Vector3>();
-            List<Vector2> uvs = new List<Vector2>();
             foreach (var tile in tiles)
             {
-                float edgeLength = _chunkGenerator.ZoomScale(tile);
-                Vector2 mapPos = tile.posf * edgeLength;
-                float MapHeight(float x, float y) => 100f * SampleHeightmap(x, y, 0, 0.001f);
-                Vector3[] quadVerts = new Vector3[4]
+                List<Vector3> vertices = new List<Vector3>();
+                List<int> triangles = new List<int>();
+                List<Vector3> normals = new List<Vector3>();
+                List<Vector2> uvs = new List<Vector2>();
+                
+                float tileLength = _chunkGenerator.ZoomScale(tile);
+                float edgeLength = tileLength/_tileSubdivision;
+                Vector2 tileOrigin = tile.posf * tileLength;
+                
+                var created = Instantiate(_tilePrefab, new Vector3(tile.x, 0, tile.y) * tileLength, Quaternion.identity, gameObject.transform);
+                created.name = $"Tile{tile.x},{tile.y},{tile.zoom}";
+                var meshFilter = created.GetComponent<MeshFilter>();
+                
+                var mesh = new Mesh();
+                mesh.name = $"Mesh{tile.x},{tile.y},{tile.zoom}";
+                
+                for (int subX = 0; subX < _tileSubdivision; subX++)
                 {
-                    new Vector3(mapPos.x, MapHeight(mapPos.x, mapPos.y), mapPos.y),
-                    new Vector3(mapPos.x, MapHeight(mapPos.x, mapPos.y + edgeLength), mapPos.y + edgeLength),
-                    new Vector3(mapPos.x + edgeLength, MapHeight(mapPos.x + edgeLength, mapPos.y + edgeLength), mapPos.y + edgeLength),
-                    new Vector3(mapPos.x + edgeLength, MapHeight(mapPos.x + edgeLength, mapPos.y), mapPos.y),
-                };
-                MeshOperations.AddQuad(quadVerts, vertices, triangles, normals, uvs);
+                    for (int subY = 0; subY < _tileSubdivision; subY++)
+                    {
+                        Vector2 localTilePos = new Vector2(subX * edgeLength, subY * edgeLength);
+                        Vector2 mapPos = localTilePos + tileOrigin;
+                        float MapHeight(float x, float y) => 100f * SampleHeightmap(x, y, 0, 0.003f);
+                        float MapNormal(float x, float y) => 100f * SampleHeightmap(x, y, 0, 0.003f);
+                        Vector3[] quadVerts = new Vector3[4]
+                        {
+                            new Vector3(localTilePos.x, MapHeight(mapPos.x, mapPos.y), localTilePos.y),
+                            new Vector3(localTilePos.x, MapHeight(mapPos.x, mapPos.y + edgeLength), localTilePos.y + edgeLength),
+                            new Vector3(localTilePos.x + edgeLength, MapHeight(mapPos.x + edgeLength, mapPos.y + edgeLength), localTilePos.y + edgeLength),
+                            new Vector3(localTilePos.x + edgeLength, MapHeight(mapPos.x + edgeLength, mapPos.y), localTilePos.y),
+                        };
+                        MeshOperations.AddQuad(quadVerts, vertices, triangles, normals);
+                        uvs.Add(new Vector2(mapPos.x, mapPos.y)/_uvScale);
+                        uvs.Add(new Vector2(mapPos.x, mapPos.y + edgeLength)/_uvScale);
+                        uvs.Add(new Vector2(mapPos.x + edgeLength, mapPos.y + edgeLength)/_uvScale);
+                        uvs.Add(new Vector2(mapPos.x + edgeLength, mapPos.y)/_uvScale);
+                        
+                    }
+                }
+                mesh.SetVertices(vertices);
+                mesh.SetTriangles(triangles, 0);
+                mesh.SetNormals(normals);
+                mesh.SetUVs(0, uvs);
+                
+                meshFilter.sharedMesh = mesh;
             }
-            _meshFilter.sharedMesh = new Mesh();
-            Logger.Logger.Log($"Vertices: {vertices.Count.ToString()}", "ProcGen");
-            Logger.Logger.Log($"Normals: {normals.Count.ToString()}", "ProcGen");
-            Logger.Logger.Log($"UVs: {uvs.Count.ToString()}", "ProcGen");
-            Logger.Logger.Log($"Triangles: {triangles.Count.ToString()}", "ProcGen");
-            _meshFilter.sharedMesh.SetVertices(vertices);
-            _meshFilter.sharedMesh.SetTriangles(triangles, 0);
-            _meshFilter.sharedMesh.SetNormals(normals);
-            _meshFilter.sharedMesh.SetUVs(0, uvs);
+            Logger.Logger.Log($"Created {tiles.Count.ToString()} tiles", "ProcGen");
         }
         
         // ==================== HEIGHTMAP ====================

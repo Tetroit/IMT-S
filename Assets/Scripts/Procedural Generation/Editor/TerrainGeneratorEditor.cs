@@ -15,6 +15,16 @@ namespace ProceduralGeneration.Editor
                 terrainGenerator.BindReferences();
                 terrainGenerator.CreateMesh();
             }
+            if (GUILayout.Button("Destroy children"))
+            {
+                foreach (var child in terrainGenerator.GetComponentsInChildren<Transform>(true))
+                {
+                    if (child == terrainGenerator.transform)
+                        continue;
+
+                    DestroyImmediate(child.gameObject);
+                }
+            }
         }
     }
 }
