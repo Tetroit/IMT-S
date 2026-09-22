@@ -28,9 +28,18 @@ public class RoadNetworkBuilder : MonoBehaviour
     [Header("Cleanup")]
     [Tooltip("Dangling dead-end edges shorter than this (source pixels) are pruned as skeletonization noise. 0 disables.")]
     public float minSpurLength = 4f;
+    [Tooltip("Some loose segments are redundant and will be pruned if their total length of edges is smaller to keep the graph clean")]
+    public float minSubgraphSize = 10f;
 
     [Tooltip("Junction nodes closer than this (source pixels) are merged into one, collapsing dense intersection clusters. 0 disables.")]
     public float junctionMergeRadius = 3f;
+
+    [Tooltip("Minimum 0-1 match score required to bridge two dangling road ends across a gap (based on their distance, how close each lands to the other's straight-line extension, and how well their directions align). 0 disables reconnection.")]
+    [Range(0f, 1f)]
+    public float reconnectMinScore = 0f;
+    [Tooltip("How large can bridged gaps between roads be")]
+    [Min(0f)]
+    public float reconnectMaxDistanceFac = 16f;
 
     [Header("Smoothing")]
     [Tooltip("Number of Chaikin corner-cutting passes applied to each road. 0 = no smoothing (straight simplified segments).")]
@@ -80,7 +89,10 @@ public class RoadNetworkBuilder : MonoBehaviour
             minSpurLength,
             junctionMergeRadius,
             smoothingIterations,
-            smoothingStrength);
+            smoothingStrength,
+            reconnectMinScore,
+            reconnectMaxDistanceFac,
+            minSubgraphSize);
 
         Debug.Log($"RoadNetworkBuilder: extracted {Graph.Nodes.Count} nodes, {Graph.Edges.Count} edges.");
 
