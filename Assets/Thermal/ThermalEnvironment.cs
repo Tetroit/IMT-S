@@ -40,6 +40,11 @@ namespace IMT.Thermal
         [SerializeField] string m_StartUtc = "2026-06-21T12:00:00Z";
         [Tooltip("1 = real time. Changing it rebases the clock, so the sun never jumps.")]
         [SerializeField] double m_TimeScale = 1.0;
+        // A reload still restarts the clock (see OnEnable), so with wall clock off a paused sun sits
+        // at Start Utc afterwards - the same place every time, which keeps scene saves unchanged.
+        [Tooltip("Stops simulated time, so the sun stops moving. Unpausing carries on from the same " +
+                 "instant.")]
+        [SerializeField] bool m_Paused;
 
         [Header("Sun")]
         [Tooltip("Leave empty to use the Lighting sun source, or the first directional light.")]
@@ -70,14 +75,15 @@ namespace IMT.Thermal
         // always gives the same instant regardless of frame timing - D-008 depends on that.
         [NonSerialized] DateTime m_ClockStart;
         [NonSerialized] double m_Epoch;
-        [NonSerialized] double m_ClockScale;
+        [NonSerialized] double m_ClockScale;   // 0 while paused
         [NonSerialized] bool m_ClockValid;
 
         // Remembered so OnValidate can tell which setting changed: a new start must jump, a new
-        // scale must not.
+        // scale or a pause must not.
         [NonSerialized] bool m_LastUseWallClock;
         [NonSerialized] string m_LastStartUtc;
         [NonSerialized] double m_LastTimeScale;
+        [NonSerialized] bool m_LastPaused;
 
         [NonSerialized] bool m_WarnedNoSun;
 
@@ -124,7 +130,7 @@ namespace IMT.Thermal
         {
             if (!m_ClockValid || m_UseWallClock != m_LastUseWallClock || m_StartUtc != m_LastStartUtc)
                 ResetClock();
-            else if (m_TimeScale != m_LastTimeScale)
+            else if (m_TimeScale != m_LastTimeScale || m_Paused != m_LastPaused)
                 Rebase();
 
             // OnValidate also fires on disabled components and during loading. Only an enabled one
@@ -140,11 +146,13 @@ namespace IMT.Thermal
 
         // ---------------------------------------------------------------------- clock
 
+        double EffectiveScale => m_Paused ? 0.0 : m_TimeScale;
+
         void ResetClock()
         {
             m_ClockStart = m_UseWallClock ? DateTime.UtcNow : ParseStartUtc();
             m_Epoch = Time.timeAsDouble;
-            m_ClockScale = m_TimeScale;
+            m_ClockScale = EffectiveScale;
             m_ClockValid = true;
             Remember();
         }
@@ -158,7 +166,7 @@ namespace IMT.Thermal
         {
             m_ClockStart = SimulatedUtc;
             m_Epoch = Time.timeAsDouble;
-            m_ClockScale = m_TimeScale;
+            m_ClockScale = EffectiveScale;
             Remember();
         }
 
@@ -167,6 +175,7 @@ namespace IMT.Thermal
             m_LastUseWallClock = m_UseWallClock;
             m_LastStartUtc = m_StartUtc;
             m_LastTimeScale = m_TimeScale;
+            m_LastPaused = m_Paused;
         }
 
         DateTime ParseStartUtc()
