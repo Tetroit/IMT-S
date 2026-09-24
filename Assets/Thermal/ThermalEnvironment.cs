@@ -45,11 +45,6 @@ namespace IMT.Thermal
         [Tooltip("Leave empty to use the Lighting sun source, or the first directional light.")]
         [SerializeField] Light m_Sun;
 
-        [Header("Current (overwritten every update)")]
-        [SerializeField] string m_SimulatedUtcDisplay;
-        [SerializeField] float m_SunElevation;
-        [SerializeField] float m_SunAzimuth;
-
         // D-005: uniform in temperature, 1024 entries over 180-1200 K.
         const int k_LutSamples = 1024;
         const double k_LutLowK = 180, k_LutHighK = 1200;
@@ -100,6 +95,12 @@ namespace IMT.Thermal
 
         /// <summary>Solar position at the current simulated instant.</summary>
         public SolarAngles Sun { get; private set; }
+
+        /// <summary>
+        /// The simulated instant <see cref="Sun"/> was computed for, at the last update. Not
+        /// serialised, like Sun: stored values would change the scene file on every save.
+        /// </summary>
+        public DateTime SunUtc { get; private set; }
 
         void OnEnable()
         {
@@ -203,6 +204,7 @@ namespace IMT.Thermal
             DateTime utc = SimulatedUtc;
             SolarAngles sun = ThermalMath.Solar(m_Latitude, m_Longitude, utc);
             Sun = sun;
+            SunUtc = utc;
 
             Vector3 sunDirection = SunDirection(sun, m_NorthRotation);
             Shader.SetGlobalVector(k_SunDir, sunDirection);
@@ -224,10 +226,6 @@ namespace IMT.Thermal
                 // the balance agree by construction rather than by care.
                 light.transform.rotation = Quaternion.LookRotation(-sunDirection);
             }
-
-            m_SimulatedUtcDisplay = utc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
-            m_SunElevation = (float)sun.elevation;
-            m_SunAzimuth = (float)sun.azimuth;
         }
 
         /// <summary>
@@ -254,7 +252,7 @@ namespace IMT.Thermal
             if (RenderSettings.sun != null)
                 return m_Sun = RenderSettings.sun;
 
-            foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
+            foreach (var l in FindObjectsByType<Light>())
             {
                 if (l.type == LightType.Directional)
                     return m_Sun = l;
