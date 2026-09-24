@@ -164,6 +164,7 @@ GameObject:
   - component: {fileID: 330585547}
   - component: {fileID: 330585548}
   - component: {fileID: 330585549}
+  - component: {fileID: 330585550}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -212,7 +213,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 37.3
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -301,9 +302,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ad30f8dfbbb579e4d949aef2bf8cdd0e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::IMT.Thermal.ThermalCapture
-  m_Width: 640
-  m_Height: 512
-  m_WriteFrames: 1
+  m_Width: 2560
+  m_Height: 2048
+  m_WriteFrames: 0
   m_OutputDirectory: Captures
   m_LogCentrePixel: 1
 --- !u!114 &330585549
@@ -327,6 +328,18 @@ MonoBehaviour:
   m_Scale: 0.75
   m_ShowLimits: 1
   m_FitPercentile: 1
+--- !u!114 &330585550
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c3d5ad1d384b154396b71c16d5f6aa0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::stepper
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -418,7 +431,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.38268343, y: 0, z: 0, w: 0.92387956}
+  m_LocalRotation: {x: 0.000040074006, y: 0.99195963, z: 0.12655441, w: -0.00031410833}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -485,9 +498,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ThermalEnvironment
   m_SkyTemperature: 220
   m_AirTemperature: 295
-  sun: {fileID: 410087039}
   m_SolarIrradiance: 900
   m_ConvectiveCoefficient: 15
+  m_Latitude: 52
+  m_Longitude: 5
+  m_NorthRotation: 0
+  m_UseWallClock: 0
+  m_StartUtc: 2026-06-21T23:42:00Z
+  m_TimeScale: 1
+  m_Sun: {fileID: 410087040}
+  m_SimulatedUtcDisplay: 2026-06-21 23:42:05 UTC
+  m_SunElevation: -14.541062
+  m_SunAzimuth: 0.036285914
 --- !u!4 &483818117
 Transform:
   m_ObjectHideFlags: 0
@@ -610,7 +632,7 @@ Transform:
   m_GameObject: {fileID: 714144654}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 2.55, y: 1.821, z: -3.707}
+  m_LocalPosition: {x: 2.38, y: 1.821, z: 3.95}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -785,7 +807,7 @@ Transform:
   m_GameObject: {fileID: 1235958588}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 2.31, y: -0, z: -2.23702}
+  m_LocalPosition: {x: 2.31, y: -0, z: 5.24}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
