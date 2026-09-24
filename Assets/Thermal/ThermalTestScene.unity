@@ -431,7 +431,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.000040074006, y: 0.99195963, z: 0.12655441, w: -0.00031410833}
+  m_LocalRotation: {x: 0.2878717, y: 0.21788447, z: -0.067435704, w: 0.9301122}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -503,13 +503,11 @@ MonoBehaviour:
   m_Latitude: 52
   m_Longitude: 5
   m_NorthRotation: 0
-  m_UseWallClock: 0
+  m_UseWallClock: 1
   m_StartUtc: 2026-06-21T23:42:00Z
   m_TimeScale: 1
+  m_Paused: 1
   m_Sun: {fileID: 410087040}
-  m_SimulatedUtcDisplay: 2026-06-21 23:42:05 UTC
-  m_SunElevation: -14.541062
-  m_SunAzimuth: 0.036285914
 --- !u!4 &483818117
 Transform:
   m_ObjectHideFlags: 0
