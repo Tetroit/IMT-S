@@ -23,5 +23,9 @@ MonoBehaviour:
       enabled: 1
   - key: ProcGen
     value:
-      color: {r: 0.61458325, g: 0, b: 0.66666657, a: 0}
+      color: {r: 0.739846, g: 0.18047136, b: 0.78616345, a: 0}
+      enabled: 1
+  - key: RoadGen
+    value:
+      color: {r: 0.5628739, g: 0.43613777, b: 0.9308176, a: 0}
       enabled: 1

@@ -12,14 +12,10 @@ namespace ProceduralGeneration.ImageProcessing
 public class RoadNetworkBuilder : MonoBehaviour
 {
     [Header("Input")]
-    [Tooltip("Path relative to Assets to the segmented PNG, e.g. for ../Assets/data/segmentation.png provide \"data/segmentation.png\"")]
-    public string imagePath;
+    public SatContext.SatContext context;
 
-    [Tooltip("The color that represents 'road' pixels in the segmentation map.")]
-    public Color roadColor = Color.white;
-
-    [Range(0f, 1f)]
-    public float colorTolerance = 0.15f;
+    [Tooltip("The ID that represents 'road' pixels in the segmentation map.")]
+    public int roadID = 4;
 
     [Header("Simplification")]
     [Tooltip("Douglas-Peucker epsilon in source pixels. Higher = straighter/fewer points.")]
@@ -51,8 +47,11 @@ public class RoadNetworkBuilder : MonoBehaviour
     public float smoothingStrength = 0.25f;
 
     [Header("Placement")]
-    [Tooltip("Scale applied when converting pixel coordinates to world units.")]
-    public float pixelToWorldScale = 0.1f;
+    [Tooltip("Scene-wide mercator -> Unity conversion.")]
+    public GeometryContext geometryContext;
+
+    // Unity units per pixel: mercator units per pixel * Unity units per mercator unit.
+    public float pixelToWorldScale => (float)(context.scale * geometryContext.scale);
 
     [Tooltip("If true, spawns a LineRenderer per edge at runtime.")]
     public bool drawWithLineRenderers = true;
@@ -74,18 +73,26 @@ public class RoadNetworkBuilder : MonoBehaviour
     [ContextMenu("Build Road Graph")]
     public void Build()
     {
-        if (string.IsNullOrEmpty(imagePath))
+        if (context == null)
         {
-            Debug.LogError("RoadNetworkBuilder: imagePath is empty.");
+            Logger.Logger.LogError("RoadNetworkBuilder: context is empty.");
             return;
         }
 
-        Graph = RoadGraphExtractor.ExtractFromPng(
-            $"{Application.dataPath}/{imagePath}",
-            roadColor,
-            colorTolerance,
+        if (geometryContext == null)
+        {
+            Logger.Logger.LogError("RoadNetworkBuilder: geometryConfig is empty.", "RoadGen", this);
+            return;
+        }
+
+        // World position of the image's top-left corner (pixel 0,0).
+        DoubleVector2 mercatorOffset = context.GetWorldPos(geometryContext.origin) * geometryContext.scale;
+        Graph = RoadGraphExtractor.ExtractFromTile(
+            context,
+            roadID,
             simplifyEpsilon,
             pixelToWorldScale,
+            mercatorOffset,
             minSpurLength,
             junctionMergeRadius,
             smoothingIterations,
@@ -94,7 +101,7 @@ public class RoadNetworkBuilder : MonoBehaviour
             reconnectMaxDistanceFac,
             minSubgraphSize);
 
-        Debug.Log($"RoadNetworkBuilder: extracted {Graph.Nodes.Count} nodes, {Graph.Edges.Count} edges.");
+        Logger.Logger.Log($"RoadNetworkBuilder: extracted {Graph.Nodes.Count} nodes, {Graph.Edges.Count} edges.", "RoadGen");
 
         if (drawWithLineRenderers)
             SpawnLineRenderers();
@@ -136,6 +143,22 @@ public class RoadNetworkBuilder : MonoBehaviour
     // Editor-time visualization even without pressing Play, once Graph has been built once.
     private void OnDrawGizmos()
     {
+        if (context != null && geometryContext != null)
+        {
+            Gizmos.color = Color.darkMagenta;
+            double[] mercatorBB = context.GetWorldSpaceBounds(geometryContext.origin);
+            float s = (float)geometryContext.scale;
+            Vector3[] imageCorners = new Vector3[4]
+            {
+                new Vector3((float)mercatorBB[0] * s, 0, (float)mercatorBB[1] * s),
+                new Vector3((float)mercatorBB[2] * s, 0, (float)mercatorBB[1] * s),
+                new Vector3((float)mercatorBB[2] * s, 0, (float)mercatorBB[3] * s),
+                new Vector3((float)mercatorBB[0] * s, 0, (float)mercatorBB[3] * s),
+            };
+            Gizmos.DrawLineStrip(imageCorners, true);
+        }
+        
+        
         if (Graph == null) return;
         if (!drawGizmos) return;
 

@@ -5,6 +5,7 @@ using System.Linq;
 using Unity.GraphToolkit.Editor;
 using Unity.Profiling;
 using UnityEngine;
+using ProceduralGeneration.SatContext;
 
 namespace ProceduralGeneration.ImageProcessing
 {
@@ -60,12 +61,12 @@ namespace ProceduralGeneration.ImageProcessing
         /// <param name="smoothingIterations">Number of Chaikin corner-cutting passes applied to each simplified edge. 0 disables smoothing.</param>
         /// <param name="smoothingStrength">Chaikin cut ratio per iteration, in (0, 0.5). Higher = more rounded corners.</param>
         /// <param name="reconnectMinScore">Minimum 0-1 match score required to bridge two dangling segment ends across a gap. 0 disables reconnection.</param>
-        public static RoadGraph ExtractFromPng(
-            string filePath,
-            Color roadColor,
-            float colorTolerance = 0.15f,
+        public static RoadGraph ExtractFromTile(
+            SatContext.SatContext context,
+            int roadID,
             float simplifyEpsilon = 1.5f,
             float pixelToWorldScale = 1f,
+            DoubleVector2 mercatorOffset = default,
             float minSpurLength = 0f,
             float junctionMergeRadius = 0f,
             int smoothingIterations = 0,
@@ -74,13 +75,13 @@ namespace ProceduralGeneration.ImageProcessing
             float reconnectMaxDistanceFac = 16f,
             float minSubgraphSize = 5f)
         {
-            Texture2D tex = LoadTexture(filePath);
+            var segImg = context.segmentationImage;
             try
             {
                 bool[,] mask;
                 using (new ProfilerMarker("Build mask").Auto())
-                    mask = BuildRoadMask(tex, roadColor, colorTolerance);
-                
+                    mask = BuildRoadMask(segImg, roadID);
+
                 bool[,] skeleton;
                 using (new ProfilerMarker("Build skeleton").Auto())
                     skeleton = ZhangSuenThin(mask);
@@ -104,7 +105,7 @@ namespace ProceduralGeneration.ImageProcessing
                     CollapseStraightNodes(live); // fold pass-through nodes left by pruning/merging/reconnecting into their edges
                 using (new ProfilerMarker("Prune subgraphs").Auto())
                     PruneLooseSegments(live, minSubgraphSize);
-                
+
                 using (new ProfilerMarker("Generate edges").Auto())
                 {
                     foreach (var edge in live.Edges)
@@ -118,24 +119,27 @@ namespace ProceduralGeneration.ImageProcessing
                 using (new ProfilerMarker("Serialize graph").Auto())
                     graph = ToSerializedGraph(live);
 
-                if (!Mathf.Approximately(pixelToWorldScale, 1f))
-                {
-                    foreach (var n in graph.Nodes)
-                        n.Position *= pixelToWorldScale;
-                    foreach (var e in graph.Edges)
-                        for (int i = 0; i < e.Points.Count; i++)
-                            e.Points[i] *= pixelToWorldScale;
-                }
+                // Pixel -> world: scale first, then offset.
+                // mercatorOffset is the world position of the image's top-left corner (pixel 0,0),
+                // pixel Y points south, world Y points north, so Y is flipped.
+                Vector2 offset = mercatorOffset.ToVector2();
+                Vector2 pixelToWorld = new Vector2(pixelToWorldScale, -pixelToWorldScale);
+
+                foreach (var n in graph.Nodes)
+                    n.Position = offset + Vector2.Scale(n.Position, pixelToWorld);
+                foreach (var e in graph.Edges)
+                    for (int i = 0; i < e.Points.Count; i++)
+                        e.Points[i] = offset + Vector2.Scale(e.Points[i], pixelToWorld);
+
+                Logger.Logger.Log($"Applied scale {pixelToWorldScale}, offset {mercatorOffset}", "RoadGen");
 
                 return graph;
             }
-            finally
+            catch (Exception e)
             {
-                if (Application.isPlaying)
-                    UnityEngine.Object.Destroy(tex);
-                else
-                    UnityEngine.Object.DestroyImmediate(tex);
+                Logger.Logger.LogError($"Road graph build failed at {e.Source}: {e.Message}");
             }
+            return null;
         }
 
         // ---------------------------------------------------------------
@@ -159,24 +163,24 @@ namespace ProceduralGeneration.ImageProcessing
         // 2. Masking
         // ---------------------------------------------------------------
 
-        public static bool[,] BuildRoadMask(Texture2D tex, Color roadColor, float tolerance)
+        public static bool[,] BuildRoadMask(TifImage tex, int roadID)
         {
             int w = tex.width, h = tex.height;
-            Color[] pixels = tex.GetPixels();
             bool[,] mask = new bool[w, h];
-            float tolSqr = tolerance * tolerance;
 
+            int roadCount = 0;
             for (int y = 0; y < h; y++)
             {
                 for (int x = 0; x < w; x++)
                 {
-                    Color c = pixels[y * w + x];
-                    float dr = c.r - roadColor.r;
-                    float dg = c.g - roadColor.g;
-                    float db = c.b - roadColor.b;
-                    mask[x, y] = (dr * dr + dg * dg + db * db) <= tolSqr;
+                    int id = tex.Get(x, y);
+                    bool isRoad = id == roadID;
+                    if (isRoad) roadCount++;
+                        mask[x, y] = isRoad;
                 }
             }
+            
+            Logger.Logger.Log($"Pixels of road: {roadCount}", "RoadGen");
             return mask;
         }
 
@@ -748,7 +752,7 @@ namespace ProceduralGeneration.ImageProcessing
                 }
             }
 
-            Logger.Logger.Log($"Reconnections: {endToEndCount} end-to-end, {tJunctionCount} T-junctions", "ProcGen");
+            Logger.Logger.Log($"Reconnections: {endToEndCount} end-to-end, {tJunctionCount} T-junctions", "RoadGen");
         }
 
         // Direction of travel as the edge arrives at node: from the point before node to node's position.
