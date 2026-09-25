@@ -8,6 +8,7 @@ namespace ProceduralGeneration.ImageProcessing
     [Serializable]
     public class NpyArray
     {
+        public bool loaded { get; private set; } = false;
         public int[] shape { get; private set; }
         public float[] data { get; private set; }
 
@@ -15,6 +16,7 @@ namespace ProceduralGeneration.ImageProcessing
         {
             this.shape = shape;
             this.data = data;
+            loaded = true;
         }
 
         // Convert multidimensional index to flat index
@@ -204,7 +206,7 @@ namespace ProceduralGeneration.ImageProcessing
                     kind,
                     itemSize,
                     fileLittleEndian != BitConverter.IsLittleEndian);
-
+                
                 return new NpyArray(shape, data);
             }
         }

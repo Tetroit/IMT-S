@@ -10,9 +10,17 @@ namespace ProceduralGeneration.Editor
         {
             base.OnInspectorGUI();
             GeometryContext geometryContext = (GeometryContext)target;
-            if (!GUILayout.Button("Set Origin to context"))
+            if (GUILayout.Button("Set Origin to context"))
             {
+                serializedObject.Update();
+
+                Undo.RecordObject(geometryContext, "Set Geometry Origin");
+
                 geometryContext.SetOriginAtContextReference();
+
+                EditorUtility.SetDirty(geometryContext);
+
+                serializedObject.ApplyModifiedProperties();
             }
         }
     }

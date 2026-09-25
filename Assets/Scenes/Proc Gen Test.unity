@@ -10679,8 +10679,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.GeometryConfig
   scale: 1
   origin:
-    x: 0
-    y: 0
+    x: 4043929.6455
+    y: 5926328.516000001
   originReference: {fileID: 11400000, guid: eafce482043e76d44875ad8fb3373a69, type: 2}
 --- !u!4 &275248951
 Transform:
@@ -81235,6 +81235,7 @@ MonoBehaviour:
   _chunkGenerator: {fileID: 1047838492}
   _camera: {fileID: 330585546}
   _tilePrefab: {fileID: 407617576872590334, guid: 11c9314ad74284942842193f48affeb4, type: 3}
+  _satContext: {fileID: 0}
   _tileSubdivision: 4
   _uvScale: 300
 --- !u!114 &1739054029

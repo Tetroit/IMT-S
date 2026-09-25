@@ -8,6 +8,7 @@ namespace ProceduralGeneration.ImageProcessing
     [Serializable]
     public class TifImage
     {
+        public bool loaded { get; private set; } = false;
         [SerializeField] private int _width;
         [SerializeField] private int _height;
         [SerializeField] private int _channels;
@@ -31,6 +32,7 @@ namespace ProceduralGeneration.ImageProcessing
             this._height = height;
             this._channels = channels;
             this._data = data;
+            loaded = true;
         }
 
         public int Get(int x, int y, int channel = 0)

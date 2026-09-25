@@ -17,12 +17,12 @@ namespace ProceduralGeneration.SatContext
         public string heightmapImagePath => Path.Combine(absoluteFolderPath,"height_meters.npy");
 
         
-        [SerializeField]
-        private SatMetadata _metadata;
-        private TifImage _segmentationImage;
-        private Texture2D _segmentationConfidenceImage;
-        private Texture2D _colorImage;
-        private NpyArray _heightmapImage;
+        [SerializeField] private SatMetadata _metadata;
+        [SerializeField] [HideInInspector] private TifImage _segmentationImage;
+        [SerializeField] [HideInInspector] private Texture2D _segmentationConfidenceImage;
+        [SerializeField] [HideInInspector] private Texture2D _colorImage;
+        [SerializeField] [HideInInspector] private NpyArray _heightmapImage;
+        
         
         public SatMetadata metadata => _metadata;
         public TifImage segmentationImage => _segmentationImage;

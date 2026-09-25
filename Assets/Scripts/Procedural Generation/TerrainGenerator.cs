@@ -12,6 +12,7 @@ namespace ProceduralGeneration
         [SerializeField] private ChunkGenerator _chunkGenerator;
         [SerializeField] private Transform _camera;
         [SerializeField] private GameObject _tilePrefab;
+        [SerializeField] private SatContext.SatContext _satContext;
 
         [Header("Mesh config")]
         [Range(1,16)]
@@ -55,8 +56,8 @@ namespace ProceduralGeneration
                     {
                         Vector2 localTilePos = new Vector2(subX * edgeLength, subY * edgeLength);
                         Vector2 mapPos = localTilePos + tileOrigin;
-                        float MapHeight(float x, float y) => 100f * SampleHeightmap(x, y, 0, 0.003f);
-                        float MapNormal(float x, float y) => 100f * SampleHeightmap(x, y, 0, 0.003f);
+                        float MapHeight(float x, float y) => 100f * SampleRandomHeightmap(x, y, 0, 0.003f);
+                        float MapNormal(float x, float y) => 100f * SampleRandomHeightmap(x, y, 0, 0.003f);
                         Vector3[] quadVerts = new Vector3[4]
                         {
                             new Vector3(localTilePos.x, MapHeight(mapPos.x, mapPos.y), localTilePos.y),
@@ -95,7 +96,7 @@ namespace ProceduralGeneration
         /// <param name="perlinWeight">Contribution of Perlin noise to the final height.</param>
         /// <param name="voronoiWeight">Contribution of Voronoi noise to the final height.</param>
         /// <param name="octaves">Perlin FBM octave count.</param>
-        public float SampleHeightmap(
+        public float SampleRandomHeightmap(
             float x, float y, int seed,
             float scale = 0.05f,
             float perlinWeight = 0.7f,
