@@ -7,13 +7,13 @@ static const float SIGMA = 5.670374419e-8;
 
 struct ThermalEnvironment      // scene conditions
 {
-    float airTemperature, skyTemperature, solarIrradiance, convectiveCoeff;
+    float airTemperature, solarIrradiance, convectiveCoeff;
     float3 sunDirection;
 };
 
 struct ThermalSurface          // material + geometry factors
 {
-    float emissivity, solarAbsorptivity, skyViewFactor, sunVisibility;
+    float emissivity, solarAbsorptivity, skyViewFactor, sunVisibility, skyDiffuse, skyDiffuseBroadband;
 };
 
 struct EnergyBalance           // reduced coefficients — what the solver actually needs
@@ -30,12 +30,11 @@ EnergyBalance MakeBalance(float3 N, ThermalSurface s, ThermalEnvironment e)
     float cosTheta = saturate(dot(N, e.sunDirection));
 
     float Ta2 = e.airTemperature * e.airTemperature;
-    float Ts2 = e.skyTemperature * e.skyTemperature;
 
     EnergyBalance b;
     b.absorbedSolar   = s.solarAbsorptivity * e.solarIrradiance * cosTheta * s.sunVisibility;
     b.emissivity      = s.emissivity;
-    b.envT4           = lerp(Ta2 * Ta2, Ts2 * Ts2, s.skyViewFactor);
+    b.envT4           = (1 - s.skyViewFactor + s.skyDiffuseBroadband) * Ta2 * Ta2;
     b.envTemperature = sqrt(sqrt(b.envT4));
     b.convectiveCoeff = e.convectiveCoeff;
     b.airTemperature  = e.airTemperature;

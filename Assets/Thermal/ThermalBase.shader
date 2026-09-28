@@ -58,6 +58,8 @@ Shader "Thermal/Base"
                 float3 N = normalize(IN.normalWS);
                 float S = MainLightRealtimeShadow(TransformWorldToShadowCoord(IN.positionWS));
                 float F = SkyViewFactor(N);
+                
+                float2 skyD = SkyDiffuse(N.y);
 
                 ThermalEnvironment env = MakeEnvironment();
                 ThermalSurface surf;
@@ -65,15 +67,18 @@ Shader "Thermal/Base"
                 surf.solarAbsorptivity = _SolarAbsorptivity;
                 surf.skyViewFactor = F;
                 surf.sunVisibility = S;
+                surf.skyDiffuse = skyD.x;
+                surf.skyDiffuseBroadband = skyD.y;
                 
                 EnergyBalance b = MakeBalance(N, surf, env);
                 float surfaceTemperature = SurfaceTemperature(b);
 
                 float surfaceRadiance = ThermalRadiance(surfaceTemperature);
 
-                float incoming = lerp(ThermalRadiance(env.airTemperature), SkyRadiance(N), F);
+                float La = ThermalRadiance(env.airTemperature);
+                float reflected = (1 - F) * La + skyD.x * La;
 
-                return surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * incoming;
+                return surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected;
             }
             ENDHLSL
         }

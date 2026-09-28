@@ -18,11 +18,20 @@ namespace IMT.Thermal
     public class ThermalEnvironment : MonoBehaviour
     {
         [Header("Atmosphere")]
-        [SerializeField, Range(180f, 320f)] float m_SkyTemperature = 220f;
         [SerializeField] float m_AirTemperature = 295f;
         [Tooltip("Direct solar irradiance with the sun above the horizon. Zeroed below it.")]
         [SerializeField] float m_SolarIrradiance = 900f;
         [SerializeField] float m_ConvectiveCoefficient = 15f;
+        [Tooltip("Relative humidity near the ground, 0-1. Sets the broadband sky the energy balance " +
+                 "feels (D-013): water vapour is most of what makes the sky warm outside the camera's band.")]
+        [SerializeField, Range(0.01f, 1f)] float m_RelativeHumidity = 0.6f;
+
+        [Header("Sky (D-013)")]
+        [Tooltip("In-band (8-14 um) sky emissivity straight up. 0.191 is the fit to the reference " +
+                 "footage under a linear map: a 216 K zenith at 295 K air.")]
+        [SerializeField, Range(0.01f, 0.99f)] float m_SkyZenithEmissivity = 0.191f;
+        // The broadband zenith emissivity is not a setting: it follows from air temperature and humidity
+        // (EnsureBroadband), and the inspector shows it under Current.
 
         [Header("Location")]
         [SerializeField] double m_Latitude = 52.0;
@@ -58,17 +67,42 @@ namespace IMT.Thermal
 
         static readonly int k_Lut = Shader.PropertyToID("_ThermalLut");
         static readonly int k_LutParams = Shader.PropertyToID("_ThermalLutParams");
-        static readonly int k_SkyT = Shader.PropertyToID("_ThermalSkyTemperature");
-        static readonly int k_SkyT4 = Shader.PropertyToID("_ThermalSkyTemperature4");
         static readonly int k_AirT = Shader.PropertyToID("_ThermalAirTemperature");
-        static readonly int k_AirT4 = Shader.PropertyToID("_ThermalAirTemperature4");
         static readonly int k_SunDir = Shader.PropertyToID("_ThermalSunDirection");
         static readonly int k_Irradiance = Shader.PropertyToID("_ThermalSolarIrradiance");
         static readonly int k_Convective = Shader.PropertyToID("_ThermalConvectiveCoefficient");
 
+        // D-013 sky tables. They hold dimensionless emissivities, so the diurnal air temperature never
+        // forces a rebake - only an emissivity setting does. View is spaced evenly in sqrt(direction.y),
+        // which keeps 256 entries within 0.05 NETD of the formula at the horizon, where evenly in
+        // direction.y would reach 0.18; diffuse is spaced evenly in N.y and stays within 0.03.
+        const int k_SkyViewSamples = 256;
+        const int k_SkyDiffuseSamples = 256;
+
+        static readonly int k_SkyView = Shader.PropertyToID("_ThermalSkyView");
+        static readonly int k_SkyDiffuse = Shader.PropertyToID("_ThermalSkyDiffuse");
+        static readonly int k_SkyParams = Shader.PropertyToID("_ThermalSkyParams");
+
         // Built once, not per frame: the old per-frame build allocated a Texture2D every update and
         // never freed it, which a continuously running sim cannot survive.
         [NonSerialized] Texture2D m_Lut;
+
+        [NonSerialized] Texture2D m_SkyView;      // R: sky emissivity by sqrt(direction.y)
+        [NonSerialized] Texture2D m_SkyDiffuse;   // RG: in-band, broadband diffuse factor by N.y
+        // The settings the sky tables were baked for. NaN equals nothing, so the first push bakes.
+        [NonSerialized] float m_BakedZenith = float.NaN;
+        [NonSerialized] float m_BakedZenithBroadband = float.NaN;
+        [NonSerialized] bool m_WarnedNoSkyModel;
+
+        // The broadband zenith emissivity, derived from air temperature and humidity and recomputed only
+        // when either changes - finding it inverts the diffuse integral, far too slow to do per frame. The
+        // fallback is the old placeholder, which keeps flat surfaces where the 220 K sky had them.
+        const float k_BroadbandFallback = 0.191f;
+        [NonSerialized] float m_BroadbandZenith = k_BroadbandFallback;
+        [NonSerialized] float m_BroadbandFlat = float.NaN;
+        [NonSerialized] float m_BroadbandForAir = float.NaN;
+        [NonSerialized] float m_BroadbandForHumidity = float.NaN;
+        [NonSerialized] bool m_WarnedNoClearSky;
 
         // simulatedUtc = m_ClockStart + (Time.timeAsDouble - m_Epoch) * m_ClockScale
         // Computed from the anchor rather than accumulated per frame, so the same elapsed time
@@ -108,6 +142,15 @@ namespace IMT.Thermal
         /// </summary>
         public DateTime SunUtc { get; private set; }
 
+        /// <summary>
+        /// Broadband clear-sky emissivity of a flat surface at the current air temperature and humidity,
+        /// from ThermalMath.ClearSkyEmissivity. NaN while that function is not written.
+        /// </summary>
+        public float BroadbandFlatEmissivity => m_BroadbandFlat;
+
+        /// <summary>The broadband zenith emissivity the balance's sky table is baked with.</summary>
+        public float BroadbandZenithEmissivity => m_BroadbandZenith;
+
         void OnEnable()
         {
             // Runtime state is not serialised, so after a domain reload the anchor is gone. In
@@ -124,6 +167,9 @@ namespace IMT.Thermal
                 DestroyImmediate(m_Lut);
                 m_Lut = null;
             }
+            DestroyTable(ref m_SkyView);
+            DestroyTable(ref m_SkyDiffuse);
+            m_BakedZenith = m_BakedZenithBroadband = float.NaN;
         }
 
         void OnValidate()
@@ -204,10 +250,15 @@ namespace IMT.Thermal
             Shader.SetGlobalVector(k_LutParams,
                 new Vector4((float)k_LutLowK, (float)k_LutHighK, k_LutSamples, 0));
 
-            Shader.SetGlobalFloat(k_SkyT, m_SkyTemperature);
-            Shader.SetGlobalFloat(k_SkyT4, (float)Math.Pow(m_SkyTemperature, 4.0));
+            EnsureSky();
+            if (m_SkyView != null && m_SkyDiffuse != null)
+            {
+                Shader.SetGlobalTexture(k_SkyView, m_SkyView);
+                Shader.SetGlobalTexture(k_SkyDiffuse, m_SkyDiffuse);
+                Shader.SetGlobalVector(k_SkyParams, new Vector4(k_SkyViewSamples, k_SkyDiffuseSamples, 0, 0));
+            }
+            
             Shader.SetGlobalFloat(k_AirT, m_AirTemperature);
-            Shader.SetGlobalFloat(k_AirT4, (float)Math.Pow(m_AirTemperature, 4.0));
             Shader.SetGlobalFloat(k_Convective, m_ConvectiveCoefficient);
 
             DateTime utc = SimulatedUtc;
@@ -307,6 +358,165 @@ namespace IMT.Thermal
 
             m_Lut.SetPixelData(data, 0);
             m_Lut.Apply(false, true);
+        }
+
+        // ---------------------------------------------------------------------- sky tables
+
+        void EnsureSky()
+        {
+            EnsureBroadband();
+            if (m_BakedZenith == m_SkyZenithEmissivity && m_BakedZenithBroadband == m_BroadbandZenith)
+                return;
+            // Recorded before baking, so a sky model that is missing or throws is tried once per
+            // setting, not every frame.
+            m_BakedZenith = m_SkyZenithEmissivity;
+            m_BakedZenithBroadband = m_BroadbandZenith;
+
+            var view = new float[k_SkyViewSamples];
+            var diffuse = new float[2 * k_SkyDiffuseSamples];
+            try
+            {
+                for (int i = 0; i < k_SkyViewSamples; i++)
+                {
+                    // the shader's inverse is sqrt(direction.y) - see SkyViewEmissivity
+                    double t = i / (double)(k_SkyViewSamples - 1);
+                    view[i] = (float)ThermalMath.SkyEmissivity(t * t, m_SkyZenithEmissivity);
+                }
+                for (int i = 0; i < k_SkyDiffuseSamples; i++)
+                {
+                    double normalY = -1.0 + 2.0 * i / (k_SkyDiffuseSamples - 1);
+                    diffuse[2 * i] = (float)ThermalMath.SkyDiffuse(normalY, m_SkyZenithEmissivity);
+                    diffuse[2 * i + 1] = (float)ThermalMath.SkyDiffuse(normalY, m_BroadbandZenith);
+                }
+            }
+            catch (NotImplementedException)
+            {
+                if (!m_WarnedNoSkyModel)
+                {
+                    Debug.LogWarning("[Thermal] ThermalMath.SkyEmissivity / SkyDiffuse are not written yet, " +
+                                     "so the sky tables are not bound (D-013)");
+                    m_WarnedNoSkyModel = true;
+                }
+                return;
+            }
+
+            CheckSkyTables(view, diffuse);
+
+            if (m_SkyView == null)
+                m_SkyView = CreateTable("ThermalSkyView", k_SkyViewSamples, TextureFormat.RFloat);
+            if (m_SkyDiffuse == null)
+                m_SkyDiffuse = CreateTable("ThermalSkyDiffuse", k_SkyDiffuseSamples, TextureFormat.RGFloat);
+
+            // Left readable, unlike the LUT: a changed emissivity writes into the same textures.
+            m_SkyView.SetPixelData(view, 0);
+            m_SkyView.Apply(false, false);
+            m_SkyDiffuse.SetPixelData(diffuse, 0);
+            m_SkyDiffuse.Apply(false, false);
+        }
+
+        /// <summary>
+        /// The broadband zenith emissivity, from air temperature and humidity. The clear-sky formula
+        /// gives a flat surface's value; ZenithEmissivityForFlat finds the zenith value that reproduces
+        /// it through SkyDiffuse, so every other tilt follows from the same airmass form. A changed
+        /// result makes EnsureSky rebake.
+        /// </summary>
+        void EnsureBroadband()
+        {
+            // Exact comparison is right while air temperature is a setting. A diurnal one (Next, item 3)
+            // changes every frame and will need a tolerance here instead.
+            if (m_BroadbandForAir == m_AirTemperature && m_BroadbandForHumidity == m_RelativeHumidity)
+                return;
+            m_BroadbandForAir = m_AirTemperature;
+            m_BroadbandForHumidity = m_RelativeHumidity;
+
+            double flat, zenith;
+            try
+            {
+                flat = ThermalMath.ClearSkyEmissivity(m_AirTemperature, m_RelativeHumidity);
+                if (!(flat > 0.0 && flat < 1.0))   // also catches NaN
+                {
+                    Debug.LogWarning($"[Thermal] clear-sky emissivity {flat} is not in (0, 1), so the " +
+                                     $"broadband sky stays at {m_BroadbandZenith}");
+                    return;
+                }
+                zenith = ThermalMath.ZenithEmissivityForFlat(flat);
+            }
+            catch (NotImplementedException)
+            {
+                m_BroadbandFlat = float.NaN;
+                m_BroadbandZenith = k_BroadbandFallback;
+                if (!m_WarnedNoClearSky)
+                {
+                    Debug.LogWarning("[Thermal] ThermalMath.ClearSkyEmissivity is not written yet, so the " +
+                                     $"balance keeps the placeholder broadband sky ({k_BroadbandFallback}) (D-013)");
+                    m_WarnedNoClearSky = true;
+                }
+                return;
+            }
+
+            // The round trip must land back on the formula's value - it cannot if SkyDiffuse misbehaves.
+            double back = ThermalMath.SkyDiffuse(1.0, zenith);
+            if (Math.Abs(back - flat) > 1e-4)
+                Debug.LogWarning($"[Thermal] broadband zenith {zenith} gives a flat-surface sky of {back}, " +
+                                 $"not the clear-sky {flat}");
+
+            m_BroadbandFlat = (float)flat;
+            m_BroadbandZenith = (float)zenith;
+        }
+
+        /// <summary>
+        /// The contract ThermalMath's sky functions must meet, checked on every bake: finite
+        /// emissivities in [0, 1], exactly 1 at the horizon (so horizon-grazing sky reads L(T_air)), the
+        /// zenith setting at the zenith, and no sky at all for a downward-facing surface (so F = 0 still
+        /// reads L(T_air)). A warning, not an exception - a table that breaks it still renders.
+        /// </summary>
+        void CheckSkyTables(float[] view, float[] diffuse)
+        {
+            const float tol = 1e-4f;
+            for (int i = 0; i < view.Length; i++)
+            {
+                if (!(view[i] >= 0f && view[i] <= 1f))   // also catches NaN
+                {
+                    Debug.LogWarning($"[Thermal] sky emissivity {view[i]} at entry {i} is not in [0, 1]");
+                    break;
+                }
+            }
+            for (int i = 0; i < diffuse.Length; i++)
+            {
+                if (!(diffuse[i] >= 0f && diffuse[i] <= 1f))
+                {
+                    Debug.LogWarning($"[Thermal] sky diffuse factor {diffuse[i]} at entry {i / 2} " +
+                                     $"({(i % 2 == 0 ? "in-band" : "broadband")}) is not in [0, 1]");
+                    break;
+                }
+            }
+            if (Mathf.Abs(view[0] - 1f) > tol)
+                Debug.LogWarning($"[Thermal] sky emissivity at the horizon is {view[0]}, must be 1");
+            if (Mathf.Abs(view[view.Length - 1] - m_SkyZenithEmissivity) > tol)
+                Debug.LogWarning($"[Thermal] sky emissivity at the zenith is {view[view.Length - 1]}, " +
+                                 $"must equal the zenith setting {m_SkyZenithEmissivity}");
+            if (Mathf.Abs(diffuse[0]) > tol || Mathf.Abs(diffuse[1]) > tol)
+                Debug.LogWarning($"[Thermal] a downward-facing surface sees sky ({diffuse[0]}, {diffuse[1]}), " +
+                                 "must see none");
+        }
+
+        static Texture2D CreateTable(string name, int samples, TextureFormat format)
+        {
+            return new Texture2D(samples, 1, format, false)
+            {
+                name = name,
+                hideFlags = HideFlags.HideAndDontSave,   // why: see EnsureLut
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+        }
+
+        static void DestroyTable(ref Texture2D table)
+        {
+            if (table == null)
+                return;
+            DestroyImmediate(table);
+            table = null;
         }
     }
 }

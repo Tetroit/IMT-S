@@ -304,7 +304,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::IMT.Thermal.ThermalCapture
   m_Width: 2560
   m_Height: 2048
-  m_WriteFrames: 0
+  m_WriteFrames: 1
   m_OutputDirectory: Captures
   m_LogCentrePixel: 1
 --- !u!114 &330585549
@@ -335,7 +335,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9c3d5ad1d384b154396b71c16d5f6aa0, type: 3}
   m_Name: 
@@ -431,7 +431,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.2878717, y: 0.21788447, z: -0.067435704, w: 0.9301122}
+  m_LocalRotation: {x: 0.19965157, y: -0.39747262, z: 0.08904466, w: 0.8911935}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -500,6 +500,8 @@ MonoBehaviour:
   m_AirTemperature: 295
   m_SolarIrradiance: 900
   m_ConvectiveCoefficient: 15
+  m_SkyZenithEmissivity: 0.191
+  m_SkyZenithEmissivityBroadband: 0.191
   m_Latitude: 52
   m_Longitude: 5
   m_NorthRotation: 0
