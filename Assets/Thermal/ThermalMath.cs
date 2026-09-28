@@ -26,6 +26,18 @@ namespace IMT.Thermal
         }
     }
 
+    public struct SolarIrradiance
+    {
+        public double directNormal;       // W/m2, on a surface facing the sun (DNI)
+        public double diffuseHorizontal;  // W/m2, scattered sky light on a flat surface (DHI)
+        public double globalHorizontal;   // W/m2, all of it on a flat surface: DNI * cos(zenith) + DHI
+
+        public override string ToString()
+        {
+            return $"DNI: {directNormal}, DHI: {diffuseHorizontal}, GHI: {globalHorizontal}";
+        }
+    }
+
     public static class ThermalMath
     {
         const double Deg2Rad = Math.PI / 180.0;
@@ -245,6 +257,66 @@ namespace IMT.Thermal
                     hi = mid;
             }
             return 0.5 * (lo + hi);
+        }
+
+        // clear-sky sunlight - called by ThermalEnvironment every push, and checked against pvlib by
+        // Thermal > Clear Sky Check
+
+        /// <summary>
+        /// Relative airmass: how many atmospheres thick the path to the sun is, 1 straight up. Kasten &amp;
+        /// Young (1989), which stays finite at the horizon. <paramref name="elevationDeg"/> is the
+        /// refraction-corrected elevation, as Solar returns it.
+        /// </summary>
+        public static double RelativeAirmass(double elevationDeg)
+        {
+            double m = 1 / (SinD(elevationDeg) + 0.50572 * Math.Pow(elevationDeg + 6.07995, -1.6364));
+            return m;
+        }
+
+        /// <summary>
+        /// Solar irradiance above the atmosphere, W/m2, on day <paramref name="dayOfYear"/> (1 = 1 January):
+        /// the solar constant times Spencer's (1971) Earth-Sun distance factor.
+        /// </summary>
+        public static double ExtraterrestrialIrradiance(int dayOfYear)
+        {
+            double B = 2 * Math.PI * (dayOfYear - 1) / 365.0;
+            double factor = 1.00011 + 0.034221 * Math.Cos(B) + 0.00128 * Math.Sin(B) + 0.000719 * Math.Cos(2 * B) +
+                            0.000077 * Math.Sin(2 * B);
+            double E0 = 1366.1 * factor;
+            return E0;
+        }
+
+        /// <summary>
+        /// Clear-sky sunlight at the ground, Ineichen &amp; Perez (2002): direct normal, diffuse horizontal
+        /// and global horizontal. <paramref name="altitudeM"/> is the site's height above sea level,
+        /// <paramref name="linkeTurbidity"/> how hazy the air is (~3 for a clear mid-latitude sky),
+        /// <paramref name="extraterrestrial"/> from ExtraterrestrialIrradiance. All three must be 0 with the
+        /// sun at or below the horizon, and globalHorizontal = directNormal * sin(elevation) + diffuseHorizontal.
+        /// </summary>
+        public static SolarIrradiance ClearSkyIrradiance(double elevationDeg, double altitudeM,
+                                                         double linkeTurbidity, double extraterrestrial)
+        {
+            if (elevationDeg <= 0)
+                return new SolarIrradiance() { diffuseHorizontal = 0, directNormal = 0, globalHorizontal = 0 };
+            
+            double cosZ = SinD(elevationDeg);
+            double pressure = 100 * Math.Pow((44331.514 - altitudeM) / 11880.516, 1 / 0.1902632);
+            double airMass = RelativeAirmass(elevationDeg) * pressure / 101325.0;
+
+            double fh1 = Math.Exp(-altitudeM / 8000.0);
+            double fh2 = Math.Exp(-altitudeM / 1250.0);
+            double cg1 = 5.09e-5 * altitudeM + 0.868;
+            double cg2 = 3.92e-5 * altitudeM + 0.0387;
+            double TL = linkeTurbidity;
+            double E0 = extraterrestrial;
+
+            double ghi = cg1 * E0 * cosZ * Math.Exp(-cg2 * airMass * (fh1 + fh2 * (TL - 1)));
+            double dniA = (0.664 + 0.163 / fh1) * E0 * Math.Exp(-0.09 * airMass * (TL - 1));
+            double dniB = ghi * (1 - (0.1 - 0.2 * Math.Exp(-TL)) / (0.1 + 0.882 / fh1)) / cosZ;
+            double dni = Math.Min(dniA, dniB);
+            double dhi = ghi - dni * cosZ;
+
+            return new SolarIrradiance() { directNormal = dni, diffuseHorizontal = dhi, globalHorizontal = ghi };
         }
     }
 }

@@ -19,8 +19,6 @@ namespace IMT.Thermal
     {
         [Header("Atmosphere")]
         [SerializeField] float m_AirTemperature = 295f;
-        [Tooltip("Direct solar irradiance with the sun above the horizon. Zeroed below it.")]
-        [SerializeField] float m_SolarIrradiance = 900f;
         [SerializeField] float m_ConvectiveCoefficient = 15f;
         [Tooltip("Relative humidity near the ground, 0-1. Sets the broadband sky the energy balance " +
                  "feels (D-013): water vapour is most of what makes the sky warm outside the camera's band.")]
@@ -33,10 +31,20 @@ namespace IMT.Thermal
         // The broadband zenith emissivity is not a setting: it follows from air temperature and humidity
         // (EnsureBroadband), and the inspector shows it under Current.
 
+        [Header("Sunlight (clear sky)")]
+        [Tooltip("Linke turbidity: how hazy the air is. ~2 very clean, ~3 a clear mid-latitude sky, " +
+                 "5 and up hazy or humid. More of it trades direct sunlight for diffuse.")]
+        [SerializeField, Range(1f, 8f)] float m_LinkeTurbidity = 3f;
+        [Tooltip("Ground albedo, for sunlight the ground reflects onto tilted surfaces. A stand-in until " +
+                 "the terrain supplies its own; ~0.2 for grass or soil.")]
+        [SerializeField, Range(0f, 1f)] float m_GroundAlbedo = 0.2f;
+
         [Header("Location")]
         [SerializeField] double m_Latitude = 52.0;
         [Tooltip("Degrees, EAST positive.")]
         [SerializeField] double m_Longitude = 5.0;
+        [Tooltip("Height of the site above sea level, metres. Less air overhead: more direct sunlight.")]
+        [SerializeField] float m_SiteAltitude = 0f;
         [Tooltip("Where true north points, in degrees clockwise from world +Z. 0 if the geodata " +
                  "is imported north-up along +Z. Check it: at solar noon shadows must point north.")]
         [SerializeField] float m_NorthRotation = 0f;
@@ -69,7 +77,10 @@ namespace IMT.Thermal
         static readonly int k_LutParams = Shader.PropertyToID("_ThermalLutParams");
         static readonly int k_AirT = Shader.PropertyToID("_ThermalAirTemperature");
         static readonly int k_SunDir = Shader.PropertyToID("_ThermalSunDirection");
-        static readonly int k_Irradiance = Shader.PropertyToID("_ThermalSolarIrradiance");
+        static readonly int k_DirectNormal = Shader.PropertyToID("_ThermalDirectNormalIrradiance");
+        static readonly int k_DiffuseHorizontal = Shader.PropertyToID("_ThermalDiffuseHorizontalIrradiance");
+        static readonly int k_GlobalHorizontal = Shader.PropertyToID("_ThermalGlobalHorizontalIrradiance");
+        static readonly int k_GroundAlbedo = Shader.PropertyToID("_ThermalGroundAlbedo");
         static readonly int k_Convective = Shader.PropertyToID("_ThermalConvectiveCoefficient");
 
         // D-013 sky tables. They hold dimensionless emissivities, so the diurnal air temperature never
@@ -103,6 +114,12 @@ namespace IMT.Thermal
         [NonSerialized] float m_BroadbandForAir = float.NaN;
         [NonSerialized] float m_BroadbandForHumidity = float.NaN;
         [NonSerialized] bool m_WarnedNoClearSky;
+
+        // Clear-sky sunlight. Until ThermalMath's clear-sky functions exist, the old flat 900 W/m2 direct
+        // beam stands in with no diffuse - exactly what the balance had before, so nothing changes early.
+        const double k_FallbackIrradiance = 900.0;
+        [NonSerialized] bool m_ClearSkyMissing;
+        [NonSerialized] bool m_WarnedSunlight;
 
         // simulatedUtc = m_ClockStart + (Time.timeAsDouble - m_Epoch) * m_ClockScale
         // Computed from the anchor rather than accumulated per frame, so the same elapsed time
@@ -150,6 +167,12 @@ namespace IMT.Thermal
 
         /// <summary>The broadband zenith emissivity the balance's sky table is baked with.</summary>
         public float BroadbandZenithEmissivity => m_BroadbandZenith;
+
+        /// <summary>Clear-sky sunlight at the last update: direct normal, diffuse and global horizontal.</summary>
+        public SolarIrradiance Sunlight { get; private set; }
+
+        /// <summary>True while the clear-sky functions are not written and the old 900 W/m2 stands in.</summary>
+        public bool SunlightIsPlaceholder => m_ClearSkyMissing;
 
         void OnEnable()
         {
@@ -269,14 +292,12 @@ namespace IMT.Thermal
             Vector3 sunDirection = SunDirection(sun, m_NorthRotation);
             Shader.SetGlobalVector(k_SunDir, sunDirection);
 
-            // Below the horizon sunDirection.y < 0, so dot(N, sunDirection) is POSITIVE for
-            // downward-facing surfaces: they would be lit by a sun shining up through the ground.
-            // The hand-placed sun never went below the horizon, so this was invisible before.
-            //
-            // Known gap: irradiance should also fall with airmass toward the horizon - 900 W/m2 at
-            // 2 degrees elevation is wrong too, just less obviously. That needs a clear-sky model.
-            float irradiance = sun.elevation > 0.0 ? m_SolarIrradiance : 0f;
-            Shader.SetGlobalFloat(k_Irradiance, irradiance);
+            SolarIrradiance sunlight = ComputeSunlight(sun, utc);
+            Sunlight = sunlight;
+            Shader.SetGlobalFloat(k_DirectNormal, (float)sunlight.directNormal);
+            Shader.SetGlobalFloat(k_DiffuseHorizontal, (float)sunlight.diffuseHorizontal);
+            Shader.SetGlobalFloat(k_GlobalHorizontal, (float)sunlight.globalHorizontal);
+            Shader.SetGlobalFloat(k_GroundAlbedo, m_GroundAlbedo);
 
             Light light = ResolveSun();
             if (light != null)
@@ -286,6 +307,63 @@ namespace IMT.Thermal
                 // the balance agree by construction rather than by care.
                 light.transform.rotation = Quaternion.LookRotation(-sunDirection);
             }
+        }
+
+        /// <summary>
+        /// Clear-sky sunlight for this instant. Zero with the sun at or below the horizon, whatever a
+        /// model gives there: below it sunDirection.y &lt; 0, so dot(N, sunDirection) is POSITIVE for
+        /// downward-facing surfaces, and they would be lit by a sun shining up through the ground.
+        /// </summary>
+        SolarIrradiance ComputeSunlight(SolarAngles sun, DateTime utc)
+        {
+            if (sun.elevation <= 0.0)
+                return default;
+
+            if (!m_ClearSkyMissing)
+            {
+                try
+                {
+                    double e0 = ThermalMath.ExtraterrestrialIrradiance(utc.DayOfYear);
+                    SolarIrradiance s = ThermalMath.ClearSkyIrradiance(sun.elevation, m_SiteAltitude,
+                                                                       m_LinkeTurbidity, e0);
+                    CheckSunlight(s, e0);
+                    return s;
+                }
+                catch (NotImplementedException)
+                {
+                    // Tried once per domain reload: writing the functions recompiles, which clears this.
+                    m_ClearSkyMissing = true;
+                    Debug.LogWarning("[Thermal] ThermalMath's clear-sky functions are not written yet, so the old " +
+                                     $"flat {k_FallbackIrradiance} W/m2 direct beam stands in, with no diffuse");
+                }
+            }
+
+            return new SolarIrradiance
+            {
+                directNormal = k_FallbackIrradiance,
+                diffuseHorizontal = 0.0,
+                globalHorizontal = k_FallbackIrradiance * Math.Sin(sun.elevation * Deg2Rad),
+            };
+        }
+
+        /// <summary>
+        /// Physical bounds on the clear-sky result, checked every push but reported once: finite, not
+        /// negative, and no more direct sunlight than arrives above the atmosphere. The exact values are
+        /// Thermal > Clear Sky Check's job.
+        /// </summary>
+        void CheckSunlight(SolarIrradiance s, double e0)
+        {
+            if (m_WarnedSunlight)
+                return;
+            string problem = null;
+            if (!(s.directNormal >= 0.0 && s.diffuseHorizontal >= 0.0 && s.globalHorizontal >= 0.0))
+                problem = "is negative or NaN";   // the comparisons are false for NaN too
+            else if (s.directNormal > e0)
+                problem = $"has more direct sunlight than the {e0:F1} W/m2 above the atmosphere";
+            if (problem == null)
+                return;
+            Debug.LogWarning($"[Thermal] clear-sky sunlight {problem}: {s}");
+            m_WarnedSunlight = true;
         }
 
         /// <summary>

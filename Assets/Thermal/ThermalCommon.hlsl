@@ -9,8 +9,11 @@ SAMPLER(sampler_ThermalLut);
 float4 _ThermalLutParams;
 float3 _ThermalSunDirection;
 float _ThermalAirTemperature;
-float _ThermalSolarIrradiance;
 float _ThermalConvectiveCoefficient;
+float _ThermalDirectNormalIrradiance;
+float _ThermalDiffuseHorizontalIrradiance;
+float _ThermalGlobalHorizontalIrradiance;
+float _ThermalGroundAlbedo;
 
 // D-013 sky tables, baked by ThermalEnvironment from ThermalMath.SkyEmissivity / SkyDiffuse.
 // Dimensionless: multiply by ThermalRadiance(T_air) for in-band radiance, by T_air^4 for the balance.
@@ -23,10 +26,13 @@ float4 _ThermalSkyParams;   // x: view entries, y: diffuse entries
 ThermalEnvironment MakeEnvironment()
 {
     ThermalEnvironment e;
-    e.airTemperature  = _ThermalAirTemperature;
-    e.solarIrradiance = _ThermalSolarIrradiance;
-    e.convectiveCoeff = _ThermalConvectiveCoefficient;
-    e.sunDirection    = _ThermalSunDirection;
+    e.airTemperature    = _ThermalAirTemperature;
+    e.convectiveCoeff   = _ThermalConvectiveCoefficient;
+    e.directNormal      = _ThermalDirectNormalIrradiance;
+    e.diffuseHorizontal = _ThermalDiffuseHorizontalIrradiance;
+    e.globalHorizontal  = _ThermalGlobalHorizontalIrradiance;
+    e.groundAlbedo      = _ThermalGroundAlbedo;
+    e.sunDirection      = _ThermalSunDirection;
     return e;
 }
 

@@ -7,7 +7,9 @@ static const float SIGMA = 5.670374419e-8;
 
 struct ThermalEnvironment      // scene conditions
 {
-    float airTemperature, solarIrradiance, convectiveCoeff;
+    float airTemperature, convectiveCoeff;
+    float directNormal, diffuseHorizontal, globalHorizontal;   // clear-sky sunlight, W/m^2
+    float groundAlbedo;                                        // 0-1, for sunlight reflected off the ground
     float3 sunDirection;
 };
 
@@ -32,7 +34,9 @@ EnergyBalance MakeBalance(float3 N, ThermalSurface s, ThermalEnvironment e)
     float Ta2 = e.airTemperature * e.airTemperature;
 
     EnergyBalance b;
-    b.absorbedSolar   = s.solarAbsorptivity * e.solarIrradiance * cosTheta * s.sunVisibility;
+    b.absorbedSolar   = s.solarAbsorptivity * (e.directNormal * cosTheta * s.sunVisibility 
+        + e.diffuseHorizontal * s.skyViewFactor 
+        + e.groundAlbedo * e.globalHorizontal * (1 - s.skyViewFactor));
     b.emissivity      = s.emissivity;
     b.envT4           = (1 - s.skyViewFactor + s.skyDiffuseBroadband) * Ta2 * Ta2;
     b.envTemperature = sqrt(sqrt(b.envT4));

@@ -98,6 +98,74 @@ namespace IMT.Thermal
             else
                 Debug.LogError(string.Format("[Solar] {0} of {1} checks FAILED", failed, cases.Length + 1));
         }
+
+        // Reference values from pvlib 0.16.1, generated 2026-09-28: clearsky.ineichen, atmosphere
+        // get_relative_airmass ('kastenyoung1989'), alt2pres, get_absolute_airmass, and
+        // irradiance.get_extra_radiation ('spencer', solar constant 1366.1).
+        [MenuItem("Thermal/Clear Sky Check")]
+        public static void ClearSkyCheck()
+        {
+            var cases = new (string name, double elev, double alt, double tl, int doy,
+                             double e0, double am, double dni, double dhi, double ghi)[]
+            {
+                ("summer high sun",  60.0,    0.0, 3.0, 172, 1321.6235925714136,  1.1539922333636758, 887.9780913035092,  99.89285770988272,  868.9044427827395),
+                ("equinox mid",      30.0,    0.0, 3.0, 266, 1356.5996934592044,  1.9942928525292494, 783.5331175020957,  75.30780416111679,  467.07436291216476),
+                ("low sun",          10.0,    0.0, 3.0, 266, 1356.5996934592044,  5.5860358798512,    410.4686651656092,  35.62462693181351,  106.90176262719899),
+                ("near horizon",      2.0,    0.0, 3.0, 266, 1356.5996934592044, 19.433245107572006,  33.94705016002431,   3.119891894644013,   4.30462685976342),
+                ("grazing",           0.5,    0.0, 3.0, 172, 1321.6235925714136, 31.349026292879188,   3.8722704212861268,  0.22911519648427184, 0.2629067017749285),
+                ("clean air",        45.0,    0.0, 2.0, 172, 1321.6235925714136,  1.4125952520262743, 951.9812806764011,  54.005902967282736, 727.15832209622),
+                ("hazy",             45.0,    0.0, 5.0, 172, 1321.6235925714136,  1.4125952520262743, 657.2939860323107, 152.39136612165692,  617.1684008782397),
+                ("500 m site",       45.0,  500.0, 3.0, 172, 1321.6235925714136,  1.4125952520262743, 871.0902171074677,  83.62096195345566,  699.574761495408),
+                ("1500 m, January",  45.0, 1500.0, 3.0,   1, 1413.981805,         1.4125952520262743, 984.2404762319774, 104.99871151959223,  800.9618265815004),
+                ("near zenith",      89.0,    0.0, 3.0, 172, 1321.6235925714136,  0.9998592586926793, 912.9590302590623, 108.4648110660562,  1021.2847932427937),
+            };
+
+            const double tolW = 1e-6, tolAm = 1e-9;
+            int failed = 0, checks = 0;
+
+            foreach (var c in cases)
+            {
+                double e0 = ThermalMath.ExtraterrestrialIrradiance(c.doy);
+                double am = ThermalMath.RelativeAirmass(c.elev);
+                // pvlib's E0 goes in, so a wrong ExtraterrestrialIrradiance cannot pass itself off as a wrong DNI
+                SolarIrradiance s = ThermalMath.ClearSkyIrradiance(c.elev, c.alt, c.tl, c.e0);
+                double closure = s.globalHorizontal
+                                 - (s.directNormal * Math.Sin(c.elev * Math.PI / 180.0) + s.diffuseHorizontal);
+
+                bool ok = Math.Abs(e0 - c.e0) < tolW && Math.Abs(am - c.am) < tolAm
+                       && Math.Abs(s.directNormal - c.dni) < tolW
+                       && Math.Abs(s.diffuseHorizontal - c.dhi) < tolW
+                       && Math.Abs(s.globalHorizontal - c.ghi) < tolW
+                       && Math.Abs(closure) < 1e-9;
+                checks++;
+                if (!ok) failed++;
+
+                string line = string.Format(
+                    "{0,-16} DNI {1,11:F6} ({2:+0.0e+0;-0.0e+0})   DHI {3,10:F6} ({4:+0.0e+0;-0.0e+0})   " +
+                    "GHI {5,11:F6} ({6:+0.0e+0;-0.0e+0})   E0 {7:+0.0e+0;-0.0e+0}   AM {8:+0.0e+0;-0.0e+0}   {9}",
+                    c.name, s.directNormal, s.directNormal - c.dni, s.diffuseHorizontal, s.diffuseHorizontal - c.dhi,
+                    s.globalHorizontal, s.globalHorizontal - c.ghi, e0 - c.e0, am - c.am, ok ? "ok" : "FAIL");
+                if (ok) Debug.Log("[ClearSky] " + line);
+                else Debug.LogError("[ClearSky] " + line);
+            }
+
+            // No sunlight at or below the horizon. At 0 the formula itself divides 0 by 0.
+            foreach (double elev in new[] { 0.0, -5.0 })
+            {
+                SolarIrradiance s = ThermalMath.ClearSkyIrradiance(elev, 0.0, 3.0, 1361.0);
+                bool ok = s.directNormal == 0.0 && s.diffuseHorizontal == 0.0 && s.globalHorizontal == 0.0;
+                checks++;
+                if (!ok) failed++;
+                string line = $"elevation {elev,5:F1}   {s}   {(ok ? "ok" : "FAIL")}";
+                if (ok) Debug.Log("[ClearSky] " + line);
+                else Debug.LogError("[ClearSky] " + line);
+            }
+
+            if (failed == 0)
+                Debug.Log($"[ClearSky] all {checks} checks passed");
+            else
+                Debug.LogError($"[ClearSky] {failed} of {checks} checks FAILED");
+        }
         
 
         [MenuItem("Thermal/LutTest")]

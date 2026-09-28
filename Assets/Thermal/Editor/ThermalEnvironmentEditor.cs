@@ -31,6 +31,13 @@ namespace IMT.Thermal
                 derived ? Fixed(environment.BroadbandFlatEmissivity) : "ClearSkyEmissivity not written yet");
             EditorGUILayout.LabelField("Broadband Sky, Zenith",
                 Fixed(environment.BroadbandZenithEmissivity) + (derived ? "" : "  (placeholder)"));
+
+            // clear-sky sunlight
+            SolarIrradiance light = environment.Sunlight;
+            EditorGUILayout.LabelField("Direct Normal", Watts(light.directNormal) +
+                (environment.SunlightIsPlaceholder ? "  (placeholder: flat 900, no diffuse)" : ""));
+            EditorGUILayout.LabelField("Diffuse Horizontal", Watts(light.diffuseHorizontal));
+            EditorGUILayout.LabelField("Global Horizontal", Watts(light.globalHorizontal));
         }
 
         // Nothing serialised changes as the clock runs, so without this the values would only
@@ -41,5 +48,7 @@ namespace IMT.Thermal
             value.ToString("F4", CultureInfo.InvariantCulture) + "°";
 
         static string Fixed(float value) => value.ToString("F4", CultureInfo.InvariantCulture);
+
+        static string Watts(double value) => value.ToString("F1", CultureInfo.InvariantCulture) + " W/m²";
     }
 }
