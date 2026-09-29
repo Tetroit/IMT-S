@@ -17,12 +17,29 @@ namespace IMT.Thermal
     [AddComponentMenu("Thermal/Thermal Environment")]
     public class ThermalEnvironment : MonoBehaviour
     {
+        [Header("Site")]
+        [Tooltip("Optional: a site profile from Assets/Thermal/Profiles (built by IMTNS/site_profile.py, D-016). " +
+                 "When set, it drives the location and, through the year, the air's minimum, maximum, dew point " +
+                 "and curve, and the Linke turbidity: those settings below are then not used.")]
+        [SerializeField] ThermalSiteProfile m_SiteProfile;
+
         [Header("Atmosphere")]
-        [SerializeField] float m_AirTemperature = 295f;
+        [Tooltip("The day's lowest air temperature, K, reached around sunrise.")]
+        [SerializeField] float m_AirTemperatureMin = 285f;
+        [Tooltip("The day's highest air temperature, K, reached in the afternoon. Equal to the minimum " +
+                 "for a constant air temperature.")]
+        [SerializeField] float m_AirTemperatureMax = 295f;
+        [Tooltip("Dew point, K: how much water vapour the air holds, near constant through a day while " +
+                 "relative humidity swings with temperature. Sets the broadband sky the energy balance " +
+                 "feels (D-013). Keep it at or below the minimum, or dawn is supersaturated. " +
+                 "286.8908 K at a constant 295 K is the old 60%.")]
+        [SerializeField] float m_DewPoint = 284f;
+        [Tooltip("Parton-Logan coefficients, hours: a the maximum's lag, b the night decay, c the minimum's " +
+                 "time after sunrise. Defaults fitted to KNMI De Bilt clear days, 2021-2026 (D-016).")]
+        [SerializeField] float m_AirCurveA = 2.19f;
+        [SerializeField] float m_AirCurveB = 2.58f;
+        [SerializeField] float m_AirCurveC = 0.22f;
         [SerializeField] float m_ConvectiveCoefficient = 15f;
-        [Tooltip("Relative humidity near the ground, 0-1. Sets the broadband sky the energy balance " +
-                 "feels (D-013): water vapour is most of what makes the sky warm outside the camera's band.")]
-        [SerializeField, Range(0.01f, 1f)] float m_RelativeHumidity = 0.6f;
 
         [Header("Sky (D-013)")]
         [Tooltip("In-band (8-14 um) sky emissivity straight up. 0.191 is the fit to the reference " +
@@ -100,20 +117,33 @@ namespace IMT.Thermal
 
         [NonSerialized] Texture2D m_SkyView;      // R: sky emissivity by sqrt(direction.y)
         [NonSerialized] Texture2D m_SkyDiffuse;   // RG: in-band, broadband diffuse factor by N.y
+        // CPU copies of both, so a change in one band rebakes only its own channel.
+        [NonSerialized] float[] m_SkyViewData;
+        [NonSerialized] float[] m_SkyDiffuseData;
         // The settings the sky tables were baked for. NaN equals nothing, so the first push bakes.
         [NonSerialized] float m_BakedZenith = float.NaN;
         [NonSerialized] float m_BakedZenithBroadband = float.NaN;
         [NonSerialized] bool m_WarnedNoSkyModel;
 
-        // The broadband zenith emissivity, derived from air temperature and humidity and recomputed only
-        // when either changes - finding it inverts the diffuse integral, far too slow to do per frame. The
+        // The broadband zenith emissivity, derived from air temperature and humidity. Finding it inverts the
+        // diffuse integral and forces a rebake, far too slow per frame - and with the air changing through
+        // the day the clear-sky value moves every frame. So it is re-derived only when the clear-sky value
+        // has moved by the tolerance: a step that size moves surfaces by ~0.002 K, far under NETD. The
         // fallback is the old placeholder, which keeps flat surfaces where the 220 K sky had them.
         const float k_BroadbandFallback = 0.191f;
+        const double k_BroadbandTolerance = 1e-4;
         [NonSerialized] float m_BroadbandZenith = k_BroadbandFallback;
         [NonSerialized] float m_BroadbandFlat = float.NaN;
-        [NonSerialized] float m_BroadbandForAir = float.NaN;
-        [NonSerialized] float m_BroadbandForHumidity = float.NaN;
         [NonSerialized] bool m_WarnedNoClearSky;
+        [NonSerialized] bool m_WarnedClearSkyRange;
+
+        // Air through the day. Until ThermalMath's air functions exist, the old constant 295 K and 60%
+        // stand in - exactly what the balance had before, so nothing changes early.
+        const double k_FallbackAirTemperature = 295.0;
+        const double k_FallbackHumidity = 0.6;
+        [NonSerialized] bool m_AirModelMissing;
+        [NonSerialized] bool m_WarnedAir;
+        [NonSerialized] bool m_WarnedAirThrew;
 
         // Clear-sky sunlight. Until ThermalMath's clear-sky functions exist, the old flat 900 W/m2 direct
         // beam stands in with no diffuse - exactly what the balance had before, so nothing changes early.
@@ -137,6 +167,27 @@ namespace IMT.Thermal
         [NonSerialized] bool m_LastPaused;
 
         [NonSerialized] bool m_WarnedNoSun;
+        [NonSerialized] bool m_WarnedProfile;
+
+        /// <summary>
+        /// The site and the day's air one push works from: the profile's, sampled at the instant, when one is
+        /// set, otherwise the settings. One place decides, so the sun, the sunlight and the air can never come
+        /// from different sites - and a profile never writes into the settings, so a scene saved while one is
+        /// set keeps its own values.
+        /// </summary>
+        public struct SiteConditions
+        {
+            public double latitude, longitude, altitude;   // degrees (east positive), m
+            public double minK, maxK, dewPointK;           // the day's air extremes and dew point
+            public double a, b, c;                         // Parton-Logan, hours
+            public double linkeTurbidity;
+        }
+
+        /// <summary>The site profile driving the site, or null when the settings do.</summary>
+        public ThermalSiteProfile SiteProfile => m_SiteProfile != null && m_SiteProfile.IsValid ? m_SiteProfile : null;
+
+        /// <summary>The site conditions of the last update.</summary>
+        public SiteConditions Site { get; private set; }
 
         /// <summary>The simulated instant driving the sun. Always DateTimeKind.Utc.</summary>
         public DateTime SimulatedUtc
@@ -158,6 +209,21 @@ namespace IMT.Thermal
         /// serialised, like Sun: stored values would change the scene file on every save.
         /// </summary>
         public DateTime SunUtc { get; private set; }
+
+        /// <summary>Air temperature at the last update, K, from ThermalMath.AirTemperature.</summary>
+        public double AirTemperature { get; private set; } = k_FallbackAirTemperature;
+
+        /// <summary>Relative humidity 0-1 at the last update, from the air temperature and the dew point.</summary>
+        public double RelativeHumidity { get; private set; } = k_FallbackHumidity;
+
+        /// <summary>
+        /// Sunrise and sunset, UTC, from ThermalMath.SunriseSunset, of the site's own day: its date in local
+        /// mean solar time, which runs up to half a day from the UTC date far from Greenwich.
+        /// </summary>
+        public SunTimes SunriseSunsetUtc { get; private set; }
+
+        /// <summary>True while the air functions are not written and the old constant air stands in.</summary>
+        public bool AirIsPlaceholder => m_AirModelMissing;
 
         /// <summary>
         /// Broadband clear-sky emissivity of a flat surface at the current air temperature and humidity,
@@ -192,6 +258,7 @@ namespace IMT.Thermal
             }
             DestroyTable(ref m_SkyView);
             DestroyTable(ref m_SkyDiffuse);
+            m_SkyViewData = m_SkyDiffuseData = null;
             m_BakedZenith = m_BakedZenithBroadband = float.NaN;
         }
 
@@ -273,6 +340,12 @@ namespace IMT.Thermal
             Shader.SetGlobalVector(k_LutParams,
                 new Vector4((float)k_LutLowK, (float)k_LutHighK, k_LutSamples, 0));
 
+            // One instant and one site for the whole push: the air, the sky derived from it, and the sun.
+            DateTime utc = SimulatedUtc;
+            SiteConditions site = ConditionsAt(utc);
+            Site = site;
+            UpdateAir(utc, site);
+
             EnsureSky();
             if (m_SkyView != null && m_SkyDiffuse != null)
             {
@@ -280,19 +353,18 @@ namespace IMT.Thermal
                 Shader.SetGlobalTexture(k_SkyDiffuse, m_SkyDiffuse);
                 Shader.SetGlobalVector(k_SkyParams, new Vector4(k_SkyViewSamples, k_SkyDiffuseSamples, 0, 0));
             }
-            
-            Shader.SetGlobalFloat(k_AirT, m_AirTemperature);
+
+            Shader.SetGlobalFloat(k_AirT, (float)AirTemperature);
             Shader.SetGlobalFloat(k_Convective, m_ConvectiveCoefficient);
 
-            DateTime utc = SimulatedUtc;
-            SolarAngles sun = ThermalMath.Solar(m_Latitude, m_Longitude, utc);
+            SolarAngles sun = ThermalMath.Solar(site.latitude, site.longitude, utc);
             Sun = sun;
             SunUtc = utc;
 
             Vector3 sunDirection = SunDirection(sun, m_NorthRotation);
             Shader.SetGlobalVector(k_SunDir, sunDirection);
 
-            SolarIrradiance sunlight = ComputeSunlight(sun, utc);
+            SolarIrradiance sunlight = ComputeSunlight(sun, utc, site);
             Sunlight = sunlight;
             Shader.SetGlobalFloat(k_DirectNormal, (float)sunlight.directNormal);
             Shader.SetGlobalFloat(k_DiffuseHorizontal, (float)sunlight.diffuseHorizontal);
@@ -310,11 +382,114 @@ namespace IMT.Thermal
         }
 
         /// <summary>
+        /// The site conditions at this instant: the profile's, blended between its mid-month values, or the
+        /// settings. A pure function of the instant, like everything the balance is driven by (D-008).
+        /// </summary>
+        SiteConditions ConditionsAt(DateTime utc)
+        {
+            if (m_SiteProfile != null)
+            {
+                if (m_SiteProfile.IsValid)
+                {
+                    ThermalSiteProfile.Month m = m_SiteProfile.Sample(utc);
+                    return new SiteConditions
+                    {
+                        latitude = m_SiteProfile.Latitude, longitude = m_SiteProfile.Longitude,
+                        altitude = m_SiteProfile.Altitude,
+                        minK = m.minK, maxK = m.maxK, dewPointK = m.dewPointK,
+                        a = m.a, b = m.b, c = m.c, linkeTurbidity = m.linkeTurbidity,
+                    };
+                }
+                if (!m_WarnedProfile)
+                {
+                    Debug.LogWarning($"[Thermal] site profile '{m_SiteProfile.name}' has no twelve months - " +
+                                     "the settings drive the site instead. Reimport its .siteprofile");
+                    m_WarnedProfile = true;
+                }
+            }
+            return new SiteConditions
+            {
+                latitude = m_Latitude, longitude = m_Longitude, altitude = m_SiteAltitude,
+                minK = m_AirTemperatureMin, maxK = m_AirTemperatureMax, dewPointK = m_DewPoint,
+                a = m_AirCurveA, b = m_AirCurveB, c = m_AirCurveC, linkeTurbidity = m_LinkeTurbidity,
+            };
+        }
+
+        /// <summary>
+        /// Air temperature and relative humidity at this instant, from ThermalMath. Both are pure
+        /// functions of simulated time, so the same instant always gives the same air. A result that
+        /// fails CheckAir is not used: the previous air stays.
+        /// </summary>
+        void UpdateAir(DateTime utc, SiteConditions site)
+        {
+            if (!m_AirModelMissing)
+            {
+                try
+                {
+                    double air = ThermalMath.AirTemperature(utc, site.latitude, site.longitude,
+                                                            site.minK, site.maxK, site.a, site.b, site.c);
+                    double humidity = ThermalMath.RelativeHumidity(air, site.dewPointK);
+                    DateTime siteDate = utc.AddHours(site.longitude / 15.0).Date;
+                    SunriseSunsetUtc = ThermalMath.SunriseSunset(siteDate, site.latitude, site.longitude);
+                    if (CheckAir(air, humidity, site))
+                    {
+                        AirTemperature = air;
+                        RelativeHumidity = humidity;
+                    }
+                    return;
+                }
+                catch (NotImplementedException)
+                {
+                    // Tried once per domain reload: writing the functions recompiles, which clears this.
+                    m_AirModelMissing = true;
+                    Debug.LogWarning("[Thermal] ThermalMath's air functions are not written yet, so the air " +
+                                     $"stays at the old constant {k_FallbackAirTemperature} K and " +
+                                     $"{k_FallbackHumidity * 100:F0}% humidity");
+                }
+                catch (Exception e)
+                {
+                    // A bug, or a site outside the contract - the sun must rise and set that day. The sim
+                    // runs on, on the previous air, rather than failing every push.
+                    if (!m_WarnedAirThrew)
+                    {
+                        Debug.LogWarning($"[Thermal] the air functions threw {e.GetType().Name} ({e.Message}) " +
+                                         "- keeping the previous air");
+                        m_WarnedAirThrew = true;
+                    }
+                    return;
+                }
+            }
+            AirTemperature = k_FallbackAirTemperature;
+            RelativeHumidity = k_FallbackHumidity;
+        }
+
+        /// <summary>
+        /// Bounds the air functions must keep, checked every push but reported once: the temperature
+        /// inside the day's minimum and maximum - Parton-Logan never leaves them - and a humidity in (0, 1].
+        /// </summary>
+        bool CheckAir(double air, double humidity, SiteConditions site)
+        {
+            string problem = null;
+            if (!(air >= site.minK - 1e-6 && air <= site.maxK + 1e-6))   // false for NaN too
+                problem = $"air temperature {air} K is outside the day's {site.minK}-{site.maxK} K";
+            else if (!(humidity > 0.0 && humidity <= 1.0))
+                problem = $"relative humidity {humidity} is not in (0, 1]";
+            if (problem == null)
+                return true;
+            if (!m_WarnedAir)
+            {
+                Debug.LogWarning($"[Thermal] {problem} - keeping the previous air");
+                m_WarnedAir = true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Clear-sky sunlight for this instant. Zero with the sun at or below the horizon, whatever a
         /// model gives there: below it sunDirection.y &lt; 0, so dot(N, sunDirection) is POSITIVE for
         /// downward-facing surfaces, and they would be lit by a sun shining up through the ground.
         /// </summary>
-        SolarIrradiance ComputeSunlight(SolarAngles sun, DateTime utc)
+        SolarIrradiance ComputeSunlight(SolarAngles sun, DateTime utc, SiteConditions site)
         {
             if (sun.elevation <= 0.0)
                 return default;
@@ -324,8 +499,8 @@ namespace IMT.Thermal
                 try
                 {
                     double e0 = ThermalMath.ExtraterrestrialIrradiance(utc.DayOfYear);
-                    SolarIrradiance s = ThermalMath.ClearSkyIrradiance(sun.elevation, m_SiteAltitude,
-                                                                       m_LinkeTurbidity, e0);
+                    SolarIrradiance s = ThermalMath.ClearSkyIrradiance(sun.elevation, site.altitude,
+                                                                       site.linkeTurbidity, e0);
                     CheckSunlight(s, e0);
                     return s;
                 }
@@ -443,32 +618,47 @@ namespace IMT.Thermal
         void EnsureSky()
         {
             EnsureBroadband();
-            if (m_BakedZenith == m_SkyZenithEmissivity && m_BakedZenithBroadband == m_BroadbandZenith)
+            bool inband = m_BakedZenith != m_SkyZenithEmissivity;            // true for NaN, the first push
+            bool broadband = m_BakedZenithBroadband != m_BroadbandZenith;
+            if (!inband && !broadband)
                 return;
             // Recorded before baking, so a sky model that is missing or throws is tried once per
             // setting, not every frame.
             m_BakedZenith = m_SkyZenithEmissivity;
             m_BakedZenithBroadband = m_BroadbandZenith;
 
-            var view = new float[k_SkyViewSamples];
-            var diffuse = new float[2 * k_SkyDiffuseSamples];
+            if (m_SkyViewData == null)
+            {
+                m_SkyViewData = new float[k_SkyViewSamples];
+                m_SkyDiffuseData = new float[2 * k_SkyDiffuseSamples];
+                inband = broadband = true;
+            }
+            float[] view = m_SkyViewData, diffuse = m_SkyDiffuseData;
             try
             {
-                for (int i = 0; i < k_SkyViewSamples; i++)
+                // Through the day only the broadband value moves, so a typical rebake is the G channel
+                // alone - half the diffuse integrals.
+                if (inband)
                 {
-                    // the shader's inverse is sqrt(direction.y) - see SkyViewEmissivity
-                    double t = i / (double)(k_SkyViewSamples - 1);
-                    view[i] = (float)ThermalMath.SkyEmissivity(t * t, m_SkyZenithEmissivity);
+                    for (int i = 0; i < k_SkyViewSamples; i++)
+                    {
+                        // the shader's inverse is sqrt(direction.y) - see SkyViewEmissivity
+                        double t = i / (double)(k_SkyViewSamples - 1);
+                        view[i] = (float)ThermalMath.SkyEmissivity(t * t, m_SkyZenithEmissivity);
+                    }
                 }
                 for (int i = 0; i < k_SkyDiffuseSamples; i++)
                 {
                     double normalY = -1.0 + 2.0 * i / (k_SkyDiffuseSamples - 1);
-                    diffuse[2 * i] = (float)ThermalMath.SkyDiffuse(normalY, m_SkyZenithEmissivity);
-                    diffuse[2 * i + 1] = (float)ThermalMath.SkyDiffuse(normalY, m_BroadbandZenith);
+                    if (inband)
+                        diffuse[2 * i] = (float)ThermalMath.SkyDiffuse(normalY, m_SkyZenithEmissivity);
+                    if (broadband)
+                        diffuse[2 * i + 1] = (float)ThermalMath.SkyDiffuse(normalY, m_BroadbandZenith);
                 }
             }
             catch (NotImplementedException)
             {
+                m_SkyViewData = m_SkyDiffuseData = null;   // part-filled: the next bake starts over
                 if (!m_WarnedNoSkyModel)
                 {
                     Debug.LogWarning("[Thermal] ThermalMath.SkyEmissivity / SkyDiffuse are not written yet, " +
@@ -500,23 +690,26 @@ namespace IMT.Thermal
         /// </summary>
         void EnsureBroadband()
         {
-            // Exact comparison is right while air temperature is a setting. A diurnal one (Next, item 3)
-            // changes every frame and will need a tolerance here instead.
-            if (m_BroadbandForAir == m_AirTemperature && m_BroadbandForHumidity == m_RelativeHumidity)
-                return;
-            m_BroadbandForAir = m_AirTemperature;
-            m_BroadbandForHumidity = m_RelativeHumidity;
+            if (m_WarnedNoClearSky)
+                return;   // the function is missing: tried once per domain reload, the fallback stays
 
             double flat, zenith;
             try
             {
-                flat = ThermalMath.ClearSkyEmissivity(m_AirTemperature, m_RelativeHumidity);
+                // Cheap - an exp and a pow - so it runs every push; the inversion below does not.
+                flat = ThermalMath.ClearSkyEmissivity(AirTemperature, RelativeHumidity);
                 if (!(flat > 0.0 && flat < 1.0))   // also catches NaN
                 {
-                    Debug.LogWarning($"[Thermal] clear-sky emissivity {flat} is not in (0, 1), so the " +
-                                     $"broadband sky stays at {m_BroadbandZenith}");
+                    if (!m_WarnedClearSkyRange)
+                    {
+                        Debug.LogWarning($"[Thermal] clear-sky emissivity {flat} is not in (0, 1), so the " +
+                                         $"broadband sky stays at {m_BroadbandZenith}");
+                        m_WarnedClearSkyRange = true;
+                    }
                     return;
                 }
+                if (!float.IsNaN(m_BroadbandFlat) && Math.Abs(flat - m_BroadbandFlat) < k_BroadbandTolerance)
+                    return;
                 zenith = ThermalMath.ZenithEmissivityForFlat(flat);
             }
             catch (NotImplementedException)

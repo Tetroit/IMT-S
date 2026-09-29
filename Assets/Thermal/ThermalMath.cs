@@ -38,6 +38,17 @@ namespace IMT.Thermal
         }
     }
 
+    public struct SunTimes
+    {
+        public DateTime sunrise;   // UTC
+        public DateTime sunset;    // UTC
+
+        public override string ToString()
+        {
+            return $"Sunrise: {sunrise:yyyy-MM-dd HH:mm:ss} UTC, Sunset: {sunset:yyyy-MM-dd HH:mm:ss} UTC";
+        }
+    }
+
     public static class ThermalMath
     {
         const double Deg2Rad = Math.PI / 180.0;
@@ -317,6 +328,88 @@ namespace IMT.Thermal
             double dhi = ghi - dni * cosZ;
 
             return new SolarIrradiance() { directNormal = dni, diffuseHorizontal = dhi, globalHorizontal = ghi };
+        }
+
+        // air through the day (Next, item 3) - called by ThermalEnvironment every push
+
+        /// <summary>
+        /// Sunrise and sunset, both UTC, for the day whose solar noon falls on <paramref name="utcDate"/>'s
+        /// UTC date: when the centre of the sun is 0.833 degrees below the horizon (refraction plus the
+        /// sun's radius), NOAA's convention. Declination and equation of time from Solar at 12:00 UTC of
+        /// that date - fixed here so a check can be exact; other instants move the result by seconds.
+        /// Only for latitudes where the sun rises and sets that day.
+        /// </summary>
+        public static SunTimes SunriseSunset(DateTime utcDate, double latDeg, double lonDeg)
+        {
+            DateTime day = new DateTime(utcDate.Year, utcDate.Month, utcDate.Day, 0,0,0, DateTimeKind.Utc);
+            SolarAngles s = Solar(latDeg, lonDeg, day.AddHours(12));
+            double HA = AcosD(CosD(90.833) / (CosD(latDeg) * CosD(s.declination)) - TanD(latDeg) * TanD(s.declination));
+            double noon = 720 - 4 * lonDeg - s.equationOfTime;
+            DateTime sunrise = day.AddMinutes(noon - 4 * HA);
+            DateTime sunset = day.AddMinutes(noon + 4 * HA);
+            return new SunTimes(){ sunrise = sunrise, sunset = sunset };
+        }
+
+        /// <summary>
+        /// Air temperature at <paramref name="utc"/>, Parton &amp; Logan (1981): a truncated sine from the
+        /// day's minimum, near sunrise, through its maximum in the afternoon to sunset, then an exponential
+        /// decline through the night to the next minimum. <paramref name="minK"/> and <paramref name="maxK"/>
+        /// are the day's extremes, equal for a constant air temperature. Must be a pure function of time -
+        /// D-008's history evaluates it at past instants - and continuous: no step at sunrise or sunset.
+        /// The original night curve does not end at the next minimum, which leaves a step at dawn unless
+        /// it is rescaled to.
+        /// Coefficients, in hours: <paramref name="a"/> the maximum's lag, <paramref name="b"/> the night
+        /// decay, <paramref name="c"/> the minimum's time after sunrise. Fitted to KNMI De Bilt clear days
+        /// 2021-2026, rescaled night form (IMTNS/fit_air_temperature.py): a 2.19, b 2.58, c 0.22.
+        /// </summary>
+        public static double AirTemperature(DateTime utc, double latDeg, double lonDeg, double minK, double maxK,
+                                            double a, double b, double c)
+        {
+            DateTime day = utc.AddHours(lonDeg / 15).Date;
+            SunTimes today = SunriseSunset(day, latDeg, lonDeg);
+            DateTime tMin = today.sunrise.AddHours(c);
+
+            Func<SunTimes, double, double> DayCurve = (s, m) =>
+            {
+                double y = (s.sunset - s.sunrise).TotalHours;
+                return minK + (maxK - minK) * Math.Sin(Math.PI * m / (y + 2 * a));
+            };
+
+            Func<SunTimes, DateTime, double> Night = (s, next) =>
+            {
+                double TSS = DayCurve(s, (s.sunset - s.sunrise.AddHours(c)).TotalHours);
+                double n = (utc - s.sunset).TotalHours;
+                double Z = (next - s.sunset).TotalHours;
+                return minK + (TSS - minK) * (Math.Exp(-b * n / Z) - Math.Exp(-b)) / (1 - Math.Exp(-b));
+            };
+
+            if (utc < tMin)
+            {
+                return Night(SunriseSunset((day.AddDays(-1)), latDeg, lonDeg), tMin);
+            }
+            if (utc <= today.sunset)
+            {
+                return DayCurve(today, (utc - tMin).TotalHours);
+            }
+            return Night(today, (SunriseSunset(day.AddDays(1), latDeg, lonDeg).sunrise).AddHours(c));
+        }
+
+        /// <summary>
+        /// Relative humidity 0-1 from air temperature and dew point, both kelvin: saturation vapour pressure
+        /// at the dew point over that at the air temperature (Tetens, as in ClearSkyEmissivity), capped at
+        /// 1 for a dew point above the air temperature. Reference: 0.6000 at 295 K and 286.8908 K;
+        /// 0.4961 at 295 K and 284 K; 0.9359 at 285 K and 284 K.
+        /// </summary>
+        public static double RelativeHumidity(double airTemperatureK, double dewPointK)
+        {
+            Func<double, double> E = (double temp) => 
+            {
+                double t = temp - 273.15; // normalize to degrees C
+                return 6.1078 * Math.Exp(17.27 * t / (t + 237.3));
+            };
+
+            double RH = Math.Min(1, E(dewPointK) / E(airTemperatureK));
+            return RH;
         }
     }
 }

@@ -3,6 +3,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 using UnityEditor;
 
@@ -166,7 +167,265 @@ namespace IMT.Thermal
             else
                 Debug.LogError($"[ClearSky] {failed} of {checks} checks FAILED");
         }
-        
+
+        // Reference values from IMTNS/air_check_ref.py, generated 2026-09-28. Sunrise and sunset: NOAA's
+        // formula on solar_ref's line-for-line port of Solar, declination and equation of time at 12:00 UTC;
+        // pvlib's SPA agrees within 37 s at the equinox, where the declination moves fastest, and 7 s
+        // elsewhere. Air: Parton-Logan with the rescaled night, 285-295 K, a 2.19, b 2.58, c 0.22, the cycle
+        // running from one day's minimum to the next. Humidity: Tetens.
+        [MenuItem("Thermal/Air Temperature Check")]
+        public static void AirTemperatureCheck()
+        {
+            const double tMin = 285.0, tMax = 295.0, curveA = 2.19, curveB = 2.58, curveC = 0.22;
+            int failed = 0, checks = 0, skipped = 0;
+
+            void Report(bool ok, string line)
+            {
+                checks++;
+                if (ok) Debug.Log("[Air] " + line);
+                else { failed++; Debug.LogError("[Air] " + line); }
+            }
+
+            // A function not written yet skips its section instead of ending the check.
+            void Section(string function, Action run)
+            {
+                try { run(); }
+                catch (NotImplementedException e)
+                {
+                    skipped++;
+                    Debug.LogWarning($"[Air] {function} skipped, not written yet ({e.Message})");
+                }
+            }
+
+            double Air(DateTime utc, double lat, double lon) =>
+                ThermalMath.AirTemperature(utc, lat, lon, tMin, tMax, curveA, curveB, curveC);
+
+            // Seconds after 00:00 UTC of the date: below 0, or past a day's 86400, when the event falls on
+            // the neighbouring UTC date. Each date comes with a time of day: the contract takes the date of
+            // any instant, and the plumbing passes the current one.
+            Section("SunriseSunset", () =>
+            {
+                var cases = new (string name, double lat, double lon, int y, int mo, int d, int h, int mi,
+                                 double rise, double set)[]
+                {
+                    ("N52 equinox",            52.0,   5.0, 2026,  3, 20,  0,  0,  20534.540784518533, 64357.41812554024),
+                    ("N52 June solstice",      52.0,   5.0, 2026,  6, 21, 15, 37,  11990.73892442197,  72228.17467533957),
+                    ("N52 December solstice",  52.0,   5.0, 2026, 12, 21, 23, 59,  27951.873664875104, 55817.37019846809),
+                    ("S52 June solstice",     -52.0,   5.0, 2026,  6, 21,  6,  0,  28177.025588809727, 56041.88801095181),
+                    ("equator equinox",         0.0,   0.0, 2026,  3, 20, 12,  0,  21846.059397941284, 65445.899512117496),
+                    ("far west, June",         40.0, -75.0, 2026,  6, 21,  8,  0,  34283.04178477129,  88335.87181499024),
+                    ("far east, June",        -34.0, 150.0, 2026,  6, 21, 20,  0, -10483.899251427712, 25102.81285118925),
+                };
+                const double tolS = 0.01;   // DateTime arithmetic rounds to the millisecond
+
+                foreach (var c in cases)
+                {
+                    var day = new DateTime(c.y, c.mo, c.d, 0, 0, 0, DateTimeKind.Utc);
+                    var instant = new DateTime(c.y, c.mo, c.d, c.h, c.mi, 0, DateTimeKind.Utc);
+                    SunTimes s = ThermalMath.SunriseSunset(instant, c.lat, c.lon);
+                    double dRise = (s.sunrise - day).TotalSeconds - c.rise;
+                    double dSet = (s.sunset - day).TotalSeconds - c.set;
+                    bool utcKind = s.sunrise.Kind == DateTimeKind.Utc && s.sunset.Kind == DateTimeKind.Utc;
+                    bool ok = Math.Abs(dRise) < tolS && Math.Abs(dSet) < tolS && utcKind;
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "{0,-24} sunrise {1:yyyy-MM-dd HH:mm:ss.fff} ({2:+0.0e+0;-0.0e+0} s)   " +
+                        "sunset {3:yyyy-MM-dd HH:mm:ss.fff} ({4:+0.0e+0;-0.0e+0} s){5}   {6}",
+                        c.name, s.sunrise, dRise, s.sunset, dSet,
+                        utcKind ? "" : "   not DateTimeKind.Utc", ok ? "ok" : "FAIL"));
+                }
+            });
+
+            Section("RelativeHumidity", () =>
+            {
+                var cases = new (double air, double dew, double rh)[]
+                {
+                    (295.0, 286.8908, 0.6000000775599315),
+                    (295.0, 284.0,    0.4960895670406168),
+                    (285.0, 284.0,    0.9358641558425497),
+                    (285.0, 286.0,    1.0),                  // dew point above the air: capped
+                    (290.0, 290.0,    1.0),
+                };
+
+                foreach (var c in cases)
+                {
+                    double rh = ThermalMath.RelativeHumidity(c.air, c.dew);
+                    bool ok = Math.Abs(rh - c.rh) < 1e-9;
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "humidity at {0:F1} K, dew point {1:F4} K   {2:F10} ({3:+0.0e+0;-0.0e+0})   {4}",
+                        c.air, c.dew, rh, rh - c.rh, ok ? "ok" : "FAIL"));
+                }
+            });
+
+            // N52 E5 on 21 June 2026: sunrise 03:19:50.7, minimum 03:33:02.7, peak 14:06:25.5 and sunset
+            // 20:03:48.2 UTC, each case to the whole second. Then two sites whose day straddles a UTC date.
+            Section("AirTemperature", () =>
+            {
+                var cases = new (string name, double lat, double lon, int y, int mo, int d, int h, int mi, int s,
+                                 double air)[]
+                {
+                    ("N52 before dawn",          52.0,   5.0, 2026,  6, 21,  2,  0,  0, 285.3659229590008),
+                    ("N52 at the minimum",       52.0,   5.0, 2026,  6, 21,  3, 33,  3, 285.00010791239526),
+                    ("N52 mid-morning",          52.0,   5.0, 2026,  6, 21,  8,  0,  0, 291.14738273809036),
+                    ("N52 at the peak",          52.0,   5.0, 2026,  6, 21, 14,  6, 25, 294.9999999982175),
+                    ("N52 at sunset",            52.0,   5.0, 2026,  6, 21, 20,  3, 48, 291.32281669408667),
+                    ("N52 UTC midnight",         52.0,   5.0, 2026,  6, 22,  0,  0,  0, 286.24499940802843),
+                    ("N52 December noon",        52.0,   5.0, 2026, 12, 21, 12,  0,  0, 293.62826503793355),
+                    ("far west, before sunset",  40.0, -75.0, 2026,  6, 22,  0, 15,  0, 292.1156800824953),
+                    ("far east, morning",       -34.0, 150.0, 2026,  6, 20, 23,  0,  0, 288.6410173796965),
+                };
+
+                foreach (var c in cases)
+                {
+                    var utc = new DateTime(c.y, c.mo, c.d, c.h, c.mi, c.s, DateTimeKind.Utc);
+                    double air = Air(utc, c.lat, c.lon);
+                    bool ok = Math.Abs(air - c.air) < 1e-6;
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "{0,-24} {1:yyyy-MM-dd HH:mm:ss}   {2,14:F9} K ({3:+0.0e+0;-0.0e+0})   {4}",
+                        c.name, utc, air, air - c.air, ok ? "ok" : "FAIL"));
+                }
+
+                // Minute by minute for 48 hours: inside the day's extremes, and no step anywhere. The
+                // reference's largest one-minute change is 0.043 K (N52 December). The unscaled night leaves
+                // 0.44-0.68 K at dawn at these sites, and a cycle taken from the wrong day leaves kelvins.
+                var sweeps = new (string name, double lat, double lon, int y, int mo, int d)[]
+                {
+                    ("N52 June",       52.0,   5.0, 2026,  6, 20),
+                    ("N52 December",   52.0,   5.0, 2026, 12, 20),
+                    ("far west June",  40.0, -75.0, 2026,  6, 20),
+                    ("far east June", -34.0, 150.0, 2026,  6, 20),
+                };
+                const int minutes = 48 * 60;
+                const double maxStep = 0.1;
+
+                foreach (var w in sweeps)
+                {
+                    var start = new DateTime(w.y, w.mo, w.d, 0, 0, 0, DateTimeKind.Utc);
+                    double low = double.MaxValue, high = double.MinValue, step = 0, previous = 0;
+                    DateTime stepAt = start;
+                    for (int i = 0; i <= minutes; i++)
+                    {
+                        DateTime utc = start.AddMinutes(i);
+                        double air = Air(utc, w.lat, w.lon);
+                        low = Math.Min(low, air);                 // NaN sticks, and fails the bounds below
+                        high = Math.Max(high, air);
+                        if (i > 0 && Math.Abs(air - previous) > step)
+                        {
+                            step = Math.Abs(air - previous);
+                            stepAt = utc;
+                        }
+                        previous = air;
+                    }
+                    bool ok = low >= tMin - 1e-9 && high <= tMax + 1e-9 && step < maxStep;
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "sweep {0,-14} 48 h from {1:yyyy-MM-dd}   range {2:F4}-{3:F4} K   " +
+                        "largest 1-min step {4:F4} K, at {5:yyyy-MM-dd HH:mm}   {6}",
+                        w.name, start, low, high, step, stepAt, ok ? "ok" : "FAIL"));
+                }
+
+                // The same values sweeping backwards: nothing carried from one call to the next, because
+                // D-008's history evaluates past instants in any order.
+                {
+                    var start = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc);
+                    var forward = new double[minutes + 1];
+                    for (int i = 0; i <= minutes; i++)
+                        forward[i] = Air(start.AddMinutes(i), 52.0, 5.0);
+                    int differ = 0;
+                    for (int i = minutes; i >= 0; i--)
+                        if (Air(start.AddMinutes(i), 52.0, 5.0) != forward[i])
+                            differ++;
+                    Report(differ == 0, $"backwards sweep N52 June: {differ} of {minutes + 1} minutes differ   " +
+                                        (differ == 0 ? "ok" : "FAIL"));
+                }
+
+                // Minimum = maximum is a constant air temperature, at any time of day or night.
+                {
+                    var start = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc);
+                    double worst = 0;
+                    for (int i = 0; i <= minutes; i += 7)
+                    {
+                        double air = ThermalMath.AirTemperature(start.AddMinutes(i), 52.0, 5.0, 290.0, 290.0,
+                                                                curveA, curveB, curveC);
+                        worst = Math.Max(worst, Math.Abs(air - 290.0));   // NaN sticks, and fails
+                    }
+                    bool ok = worst < 1e-9;
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "constant air, 290-290 K: largest deviation {0:0.0e+0} K   {1}", worst, ok ? "ok" : "FAIL"));
+                }
+            });
+
+            if (failed == 0 && skipped == 0)
+                Debug.Log($"[Air] all {checks} checks passed");
+            else if (failed == 0)
+                Debug.LogWarning($"[Air] {checks} checks passed, {skipped} section(s) skipped");
+            else
+                Debug.LogError($"[Air] {failed} of {checks} checks FAILED" +
+                               (skipped > 0 ? $", {skipped} section(s) skipped" : ""));
+        }
+
+
+        // Every ThermalSiteProfile in the project (D-016): imported whole, and blended without a step. On the
+        // 15th at 00:00 UTC it gives its months exactly; hour by hour across 2027-2028, a leap year included,
+        // nothing jumps - the year boundary and every month boundary among them.
+        [MenuItem("Thermal/Site Profile Check")]
+        public static void SiteProfileCheck()
+        {
+            string[] guids = AssetDatabase.FindAssets("t:ThermalSiteProfile");
+            if (guids.Length == 0)
+            {
+                Debug.LogWarning("[Site] no site profiles in the project - drop a .siteprofile under Assets");
+                return;
+            }
+            int failed = 0;
+            foreach (string guid in guids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var p = AssetDatabase.LoadAssetAtPath<ThermalSiteProfile>(path);
+                if (p == null || !p.IsValid)
+                {
+                    failed++;
+                    Debug.LogError($"[Site] {path}: not a whole profile - reimport it");
+                    continue;
+                }
+
+                double anchor = 0;
+                for (int m = 1; m <= 12; m++)
+                {
+                    ThermalSiteProfile.Month want = p.GetMonth(m);
+                    ThermalSiteProfile.Month got = p.Sample(new DateTime(2027, m, 15, 0, 0, 0, DateTimeKind.Utc));
+                    anchor = Math.Max(anchor, Math.Max(Math.Abs(got.minK - want.minK), Math.Abs(got.maxK - want.maxK)));
+                    anchor = Math.Max(anchor, Math.Max(Math.Abs(got.dewPointK - want.dewPointK), Math.Abs(got.a - want.a)));
+                    anchor = Math.Max(anchor, Math.Max(Math.Abs(got.b - want.b), Math.Abs(got.c - want.c)));
+                    anchor = Math.Max(anchor, Math.Abs(got.linkeTurbidity - want.linkeTurbidity));
+                }
+
+                // The seasons move a clear day's extremes by ~10 K in three months: ~0.005 K an hour.
+                double stepK = 0, stepH = 0, stepTl = 0;
+                DateTime at = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc), worstAt = at;
+                ThermalSiteProfile.Month prev = p.Sample(at);
+                for (int i = 1; i <= 2 * 8784; i++)
+                {
+                    DateTime t = at.AddHours(i);
+                    ThermalSiteProfile.Month s = p.Sample(t);
+                    double k = Math.Max(Math.Abs(s.minK - prev.minK), Math.Max(Math.Abs(s.maxK - prev.maxK), Math.Abs(s.dewPointK - prev.dewPointK)));
+                    if (k > stepK) { stepK = k; worstAt = t; }
+                    stepH = Math.Max(stepH, Math.Max(Math.Abs(s.a - prev.a), Math.Max(Math.Abs(s.b - prev.b), Math.Abs(s.c - prev.c))));
+                    stepTl = Math.Max(stepTl, Math.Abs(s.linkeTurbidity - prev.linkeTurbidity));
+                    prev = s;
+                }
+                bool ok = anchor < 1e-9 && stepK < 0.05 && stepH < 0.01 && stepTl < 0.01;
+                if (!ok) failed++;
+                string line = string.Format(CultureInfo.InvariantCulture,
+                    "{0} ({1})   months on the 15th {2:0.0e+0}   largest hourly change: {3:F4} K at {4:yyyy-MM-dd HH:mm}, " +
+                    "{5:F5} h, turbidity {6:F5}   {7}",
+                    p.DisplayName, path, anchor, stepK, worstAt, stepH, stepTl, ok ? "ok" : "FAIL");
+                if (ok) Debug.Log("[Site] " + line);
+                else Debug.LogError("[Site] " + line);
+            }
+            if (failed == 0)
+                Debug.Log($"[Site] all {guids.Length} profiles passed");
+            else
+                Debug.LogError($"[Site] {failed} of {guids.Length} profiles FAILED");
+        }
 
         [MenuItem("Thermal/LutTest")]
         public static void CreateLUT()
