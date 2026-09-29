@@ -431,7 +431,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.19965157, y: -0.39747262, z: 0.08904466, w: 0.8911935}
+  m_LocalRotation: {x: 0.5108942, y: 0.0006421975, z: -0.000381664, w: 0.85964334}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -496,17 +496,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 51bee4ad36372a24c82eaac3b43fdf01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ThermalEnvironment
-  m_SkyTemperature: 220
-  m_AirTemperature: 295
-  m_SolarIrradiance: 900
+  m_AirTemperatureMin: 285
+  m_AirTemperatureMax: 295
+  m_DewPoint: 284
+  m_AirCurveA: 2.19
+  m_AirCurveB: 2.58
+  m_AirCurveC: 0.22
   m_ConvectiveCoefficient: 15
   m_SkyZenithEmissivity: 0.191
-  m_SkyZenithEmissivityBroadband: 0.191
+  m_LinkeTurbidity: 3
+  m_GroundAlbedo: 0.2
   m_Latitude: 52
   m_Longitude: 5
+  m_SiteAltitude: 0
   m_NorthRotation: 0
-  m_UseWallClock: 1
-  m_StartUtc: 2026-06-21T23:42:00Z
+  m_UseWallClock: 0
+  m_StartUtc: 2026-06-21T11:42:00Z
   m_TimeScale: 1
   m_Paused: 1
   m_Sun: {fileID: 410087040}
