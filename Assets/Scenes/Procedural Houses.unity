@@ -383,9 +383,78 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1173753191
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1173753193}
+  - component: {fileID: 1173753192}
+  m_Layer: 0
+  m_Name: ProceduralBuildingDrawer
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1173753192
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1173753191}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 08ea751e32f0e334bb3ce9dea8cf62d9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralBuildingDrawer
+  showOutlines: 1
+  depth: 4
+  floors: 2
+  seed: 44
+  newRandomPerRule: 1
+  buildingAsset: {fileID: 11400000, guid: 2b1ed1ceffeb850418f97a7430f482a0, type: 2}
+  populateInstances: 0
+  roofType: 0
+  debugRoofType: 1
+  overrideRoofForDebug: 0
+  rawPoints:
+  - {x: 2.9915287, y: 0.0000007643458, z: -5.309774}
+  - {x: 3.8161888, y: 0.0000002722602, z: -0.7901233}
+  - {x: 4.0202017, y: 0.00000043446045, z: 3.2986758}
+  left:
+  - {x: 0.99152875, y: 0, z: -7.309774}
+  - {x: 6.0202017, y: 0, z: -7.309774}
+  - {x: 6.0202017, y: 0, z: 5.2986755}
+  - {x: 0.99152875, y: 0, z: 5.2986755}
+  right:
+  - {x: 4.9915285, y: 0, z: -3.309774}
+  - {x: 2.0202017, y: 0, z: -3.309774}
+  - {x: 2.0202017, y: 0, z: 1.2986755}
+  - {x: 4.9915285, y: 0, z: 1.2986755}
+--- !u!4 &1173753193
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1173753191}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 4.5988426, y: 0.00000034058394, z: -6.653004}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 961739753}
   - {fileID: 203844589}
+  - {fileID: 1173753193}
