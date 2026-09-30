@@ -5,6 +5,15 @@ Shader "Thermal/Base"
         _Emissivity ("Emissivity", Range(0,1)) = 0.95
         _Temperature ("Temperature [K]", Float) = 300
         _SolarAbsorptivity ("SolarAbsorptivity", Range(0,1)) = 0.9
+
+        // D-010 MVP maps, set per object by ThermalObject. Off by default, so anything without them
+        // renders exactly as before.
+        [NoScaleOffset] _ThermalPropertyMap ("Property Map (R absorptivity, G emissivity, linear)", 2D) = "white" {}
+        _ThermalPropertyMapOn ("Use Property Map", Float) = 0
+        [NoScaleOffset][Normal] _ThermalNormalMap ("Normal Map", 2D) = "bump" {}
+        _ThermalNormalStrength ("Normal Strength (0 = off)", Range(0,1)) = 0
+        _ThermalNormalMipBias ("Normal Mip Bias", Float) = 0
+        _ThermalMapST ("Map Tiling (xy) and Offset (zw)", Vector) = (1, 1, 0, 0)
     }
 
     SubShader
@@ -29,6 +38,8 @@ Shader "Thermal/Base"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                float4 tangentOS : TANGENT;     // for the normal map; all zero on a mesh without tangents
+                float2 uv : TEXCOORD0;
             };
 
             struct Varyings
@@ -36,6 +47,8 @@ Shader "Thermal/Base"
                 float4 positionCS : SV_POSITION;
                 float3 normalWS : TEXCOORD0;
                 float3 positionWS : TEXCOORD1;
+                float4 tangentWS : TEXCOORD2;   // w: the bitangent's sign
+                float2 uv : TEXCOORD3;
             };
 
             #include "ThermalCommon.hlsl"
@@ -44,27 +57,62 @@ Shader "Thermal/Base"
             float _Emissivity;
             float _SolarAbsorptivity;
 
+            TEXTURE2D(_ThermalPropertyMap);
+            SAMPLER(sampler_ThermalPropertyMap);
+            TEXTURE2D(_ThermalNormalMap);
+            SAMPLER(sampler_ThermalNormalMap);
+            float _ThermalPropertyMapOn;
+            float _ThermalNormalStrength;
+            float _ThermalNormalMipBias;
+            float4 _ThermalMapST;
+
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
                 OUT.positionCS = TransformObjectToHClip(IN.positionOS.xyz);
                 OUT.normalWS = TransformObjectToWorldNormal(IN.normalOS);
                 OUT.positionWS = TransformObjectToWorld(IN.positionOS.xyz);
+                OUT.tangentWS = float4(TransformObjectToWorldDir(IN.tangentOS.xyz), IN.tangentOS.w * GetOddNegativeScale());
+                OUT.uv = IN.uv * _ThermalMapST.xy + _ThermalMapST.zw;
                 return OUT;
             }
 
             float frag(Varyings IN) : SV_Target
             {
                 float3 N = normalize(IN.normalWS);
+
+                // The normal map bends the normal everything below sees - the sun angle, the sky view and
+                // the sky's diffuse factor - while the shadow map keeps the geometry's. Both branches are
+                // per object: without a map an object takes exactly the path it always did.
+                float3 T = IN.tangentWS.xyz - N * dot(N, IN.tangentWS.xyz);    // Gram-Schmidt onto the surface
+                if (_ThermalNormalStrength > 0 && dot(T, T) > 1e-12)
+                {
+                    float4 packedNormal = SAMPLE_TEXTURE2D_BIAS(_ThermalNormalMap, sampler_ThermalNormalMap,
+                                                                IN.uv, _ThermalNormalMipBias);
+                    float3 nTS = UnpackNormalScale(packedNormal, _ThermalNormalStrength);
+                    T = normalize(T);
+                    float3 B = cross(N, T) * IN.tangentWS.w;
+                    N = normalize(nTS.x * T + nTS.y * B + nTS.z * N);
+                }
+
+                float emissivity = _Emissivity;
+                float absorptivity = _SolarAbsorptivity;
+                if (_ThermalPropertyMapOn > 0.5)
+                {
+                    float2 painted = SAMPLE_TEXTURE2D(_ThermalPropertyMap, sampler_ThermalPropertyMap, IN.uv).rg;
+                    absorptivity = painted.r;
+                    emissivity = painted.g;
+                }
+
                 float S = MainLightRealtimeShadow(TransformWorldToShadowCoord(IN.positionWS));
                 float F = SkyViewFactor(N);
-                
+
                 float2 skyD = SkyDiffuse(N.y);
 
                 ThermalEnvironment env = MakeEnvironment();
                 ThermalSurface surf;
-                surf.emissivity = _Emissivity;
-                surf.solarAbsorptivity = _SolarAbsorptivity;
+                surf.emissivity = emissivity;
+                surf.solarAbsorptivity = absorptivity;
                 surf.skyViewFactor = F;
                 surf.sunVisibility = S;
                 surf.skyDiffuse = skyD.x;

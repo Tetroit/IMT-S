@@ -427,6 +427,100 @@ namespace IMT.Thermal
                 Debug.LogError($"[Site] {failed} of {guids.Length} profiles FAILED");
         }
 
+        // D-010's MVP maps against values known to the texel. A property map of four columns - absorptivity
+        // 230/255 or 77/255 by emissivity 250/255 or 26/255, exact in 8 bits - and a normal map of three rows,
+        // bottom to top: tilted 20 degrees along the bitangent one way, flat, and 20 degrees the other.
+        // Then a ThermalMaterial wearing both and a 2 x 2 m quad wearing that, facing south (a quad faces its
+        // own -Z), at the Scene view's pivot. Twelve cells, twelve plateaus to predict.
+        [MenuItem("Thermal/Create Map Test Panel")]
+        public static void CreateMapTestPanel()
+        {
+            const string folder = "Assets/Thermal/MapTest";
+            if (!AssetDatabase.IsValidFolder(folder))
+                AssetDatabase.CreateFolder("Assets/Thermal", "MapTest");
+
+            const int size = 256;
+            byte[] absorptivity = { 230, 77, 230, 77 }, emissivity = { 250, 250, 26, 26 };
+            double tilt = 20.0 * Math.PI / 180.0;
+            var props = new Color32[size * size];
+            var normals = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                int row = y * 3 / size;
+                double ny = row == 0 ? -Math.Sin(tilt) : row == 2 ? Math.Sin(tilt) : 0.0;
+                byte g = (byte)Math.Round((ny + 1) / 2 * 255);
+                byte b = (byte)Math.Round((Math.Sqrt(1 - ny * ny) + 1) / 2 * 255);
+                for (int x = 0; x < size; x++)
+                {
+                    int col = x * 4 / size;
+                    props[y * size + x] = new Color32(absorptivity[col], emissivity[col], 0, 255);
+                    normals[y * size + x] = new Color32(128, g, b, 255);
+                }
+            }
+            string propsPath = folder + "/MapTest_Properties.png", normalsPath = folder + "/MapTest_Normals.png";
+            WritePng(propsPath, props, size);
+            WritePng(normalsPath, normals, size);
+
+            var pi = (TextureImporter)AssetImporter.GetAtPath(propsPath);
+            pi.textureType = TextureImporterType.Default;
+            pi.sRGBTexture = false;
+            pi.textureCompression = TextureImporterCompression.Uncompressed;
+            pi.mipmapEnabled = true;
+            pi.wrapMode = TextureWrapMode.Clamp;
+            pi.filterMode = FilterMode.Bilinear;
+            pi.SaveAndReimport();
+            var ni = (TextureImporter)AssetImporter.GetAtPath(normalsPath);
+            ni.textureType = TextureImporterType.NormalMap;
+            ni.textureCompression = TextureImporterCompression.Uncompressed;
+            ni.mipmapEnabled = true;
+            ni.wrapMode = TextureWrapMode.Clamp;
+            ni.SaveAndReimport();
+
+            string materialPath = folder + "/MapTest.asset";
+            var material = AssetDatabase.LoadAssetAtPath<ThermalMaterial>(materialPath);
+            if (material == null)
+            {
+                material = ScriptableObject.CreateInstance<ThermalMaterial>();
+                AssetDatabase.CreateAsset(material, materialPath);
+            }
+            material.m_PropertyMap = AssetDatabase.LoadAssetAtPath<Texture2D>(propsPath);
+            material.m_NormalMap = AssetDatabase.LoadAssetAtPath<Texture2D>(normalsPath);
+            material.m_NormalStrength = 1f;
+            material.m_NormalMipBias = 0f;
+            material.m_Tiling = Vector2.one;
+            material.m_Offset = Vector2.zero;
+            EditorUtility.SetDirty(material);
+            AssetDatabase.SaveAssets();
+
+            var panel = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            panel.SetActive(false);                      // so ThermalObject first runs with its material set
+            panel.name = "Thermal Map Test Panel";
+            UnityEngine.Object.DestroyImmediate(panel.GetComponent<Collider>());
+            panel.transform.localScale = new Vector3(2f, 2f, 1f);
+            SceneView view = SceneView.lastActiveSceneView;
+            panel.transform.position = view != null ? view.pivot : Vector3.zero;
+            panel.AddComponent<ThermalObject>().material = material;
+            panel.SetActive(true);
+            Undo.RegisterCreatedObjectUndo(panel, "Create Map Test Panel");
+            Selection.activeGameObject = panel;
+
+            Mesh mesh = panel.GetComponent<MeshFilter>().sharedMesh;
+            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                "[MapTest] panel at {0}; quad normal {1}, tangent {2}, uv of its first two vertices {3} and {4}. " +
+                "Keep its rotation at 0 (it faces south), put it where the thermal camera sees it in full sun, " +
+                "clear Site Profile, set Start Utc to 2026-06-21T11:42:00Z and capture.",
+                panel.transform.position, mesh.normals[0], mesh.tangents[0], mesh.uv[0], mesh.uv[1]));
+        }
+
+        static void WritePng(string path, Color32[] pixels, int size)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
+            texture.SetPixels32(pixels);
+            System.IO.File.WriteAllBytes(path, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+            AssetDatabase.ImportAsset(path);
+        }
+
         [MenuItem("Thermal/LutTest")]
         public static void CreateLUT()
         {
