@@ -1,0 +1,27 @@
+Created by TNTC 
+Procedural Building Tool inspired by Expedition 33! 
+v 1.0
+
+License: (Creative Commons Zero, CC0)
+<http://creativecommons.org/publicdomain/zero/1.0/>
+This content is free to use in personal, educational and commercial projects.
+
+A huge thank you for your support! We hope this package is useful to you, no matter your end goal.
+Feel free to join our Discord server if you have any questions or just want to hang out with us.
+
+Your support truly matters, it allows us to spend more time creating cool new projects for the community.
+
+While not mandatory, we’d really appreciate it if you followed us on social media, subscribed on YouTube, and became an active member of TNTC.
+
+Links:
+
+Patreon - https://www.patreon.com/tntcproject
+Youtube - www.youtube.com/@TNTCProject
+Discord - https://discord.gg/t5MARXsSfP 
+
+For more updates:
+BlueSky - https://bsky.app/profile/tntcproject.bsky.social
+Twitter - https://x.com/tntcproject
+
+For behind the scenes content 
+Instagram - https://www.instagram.com/tntcproject/
