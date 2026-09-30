@@ -28,5 +28,12 @@ namespace ProceduralGeneration
             origin.x = (bounds[0] + bounds[2])/2;
             origin.y = (bounds[1] + bounds[3])/2;
         }
+
+        public float GetMeterScale()
+        {
+            const double earthRadius = 6378137.0;
+            double latitude = 2 * Math.Atan(Math.Exp(origin.y / earthRadius)) - Math.PI / 2;
+            return (float)(scale / Math.Cos(latitude));
+        }
     }
 }
