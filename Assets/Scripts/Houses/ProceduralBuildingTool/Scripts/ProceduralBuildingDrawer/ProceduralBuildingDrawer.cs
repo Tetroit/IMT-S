@@ -1,26 +1,30 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections.Generic;
+#if UNITY_EDITOR
 using UnityEditor;
 using UnityEditor.Formats.Fbx.Exporter;
+#endif
 using UnityEngine;
 using UnityEngine.Rendering;
 using Random = UnityEngine.Random;
 
 
+/// <summary>
+/// Builds a house on a rectangle centered on the transform. Everything is generated in local space, the transform
+/// places, rotates and scales the building, local x is <see cref="size"/>.x and local z is <see cref="size"/>.y.
+/// </summary>
 [ExecuteInEditMode]
 public class ProceduralBuildingDrawer : MonoBehaviour
 {
-    public const float DATA_SNAPSHOT_TOLERANCE = .01f;
-    public const float DRAW_POINT_DISTANCE = 4f;
-    public const float SAMPLE_POINT_DISTANCE = 1f;
     public const float ROOF_OVERHANG = 0.2f;
+    public const float MIN_SIZE = 0.5f;
 
     public enum RoofType { Auto, Hip, AFrame }
 
     [Header("Settings")]
     public bool showOutlines;
-    public float depth = 1;
+    [Tooltip("Footprint rectangle, local x and z, full size not half.")]
+    public Vector2 size = new Vector2(10f, 6f);
+    [Tooltip("Floor count, the last one is the roof.")]
     public int floors;
     public int seed;
     public bool newRandomPerRule;
@@ -35,36 +39,33 @@ public class ProceduralBuildingDrawer : MonoBehaviour
     public bool overrideRoofForDebug = false;
 
     [HideInInspector]
-    public List<Vector3> rawPoints = new List<Vector3>();
-    [HideInInspector]
-    public List<Vector3> left = new List<Vector3>();
-    [HideInInspector]
-    public List<Vector3> right = new List<Vector3>();
-    [HideInInspector]
     public Dictionary<OutlineType, Outline> outlines = new Dictionary<OutlineType, Outline>();
     [HideInInspector]
     public Dictionary<BuildingModule, BuildingModuleInstances> modulesDictionary;
 
-    (BuildingAsset buildingAsset, int floors, int seed, float depth, RoofType roofType, bool overrideRoofForDebug, RoofType debugRoofType) dataSnapshot;
-
+    // Generated at runtime, never saved with the scene.
     Mesh roofMeshSideBottom;
     Mesh roofMeshSideTop;
     // True when roofMeshSideTop contains the A-frame gable wall (render with aFrameGableMaterial).
     bool roofMeshSideTopIsGable = false;
-    Mesh roofMeshTop;
     List<BuildingMeshInstances> instances = new List<BuildingMeshInstances>();
-    public List<List<Vector3>> cells3D;
 
-    void updateDataSnapshot()
+    // Module matrices are local, these are them in world space for the transform they were computed with.
+    readonly Dictionary<BuildingModule, Matrix4x4[]> worldMatrices = new Dictionary<BuildingModule, Matrix4x4[]>();
+    Matrix4x4 worldMatricesLocalToWorld;
+    bool worldMatricesDirty = true;
+
+    /// <summary>
+    /// Sets the footprint rectangle and rebuilds the building.
+    /// </summary>
+    public void setRectangle(Vector2 newSize)
     {
-        dataSnapshot = (buildingAsset, floors, seed, depth, roofType, overrideRoofForDebug, debugRoofType);
+        size = newSize;
+        updateAll();
     }
 
     public void clearAll()
     {
-        rawPoints.Clear();
-        left.Clear();
-        right.Clear();
         outlines.Clear();
         clearMatrices();
         clearMeshes();
@@ -74,116 +75,53 @@ public class ProceduralBuildingDrawer : MonoBehaviour
     {
         if (roofMeshSideBottom != null) roofMeshSideBottom.Clear();
         if (roofMeshSideTop != null) roofMeshSideTop.Clear();
-        if (roofMeshTop != null) roofMeshTop.Clear();
         roofMeshSideTopIsGable = false;
+        worldMatricesDirty = true;
     }
 
     void OnEnable()
     {
+#if UNITY_EDITOR
         Undo.undoRedoPerformed += updateAll;
+#endif
+        // Nothing generated is serialized, rebuild after instantiation, scene load and domain reload.
+        updateAll();
     }
 
     void OnDisable()
     {
+#if UNITY_EDITOR
         Undo.undoRedoPerformed -= updateAll;
+#endif
+    }
+
+    void OnDestroy()
+    {
+        destroyMesh(roofMeshSideBottom);
+        destroyMesh(roofMeshSideTop);
+    }
+
+    static void destroyMesh(Mesh mesh)
+    {
+        if (mesh == null) return;
+        if (Application.isPlaying) Destroy(mesh);
+        else DestroyImmediate(mesh);
     }
 
     void OnValidate()
     {
-        updateSections();
-
-        if (dataSnapshot.buildingAsset != buildingAsset)
-        {
-            createMatrices();
-        }
-        if (dataSnapshot.buildingAsset != buildingAsset
-            || dataSnapshot.seed != seed
-            || dataSnapshot.floors != floors
-            || !Mathf.Approximately(dataSnapshot.depth, depth)
-            || dataSnapshot.roofType != roofType
-            || dataSnapshot.overrideRoofForDebug != overrideRoofForDebug
-            || dataSnapshot.debugRoofType != debugRoofType)
-        {
-            populateMatrices();
-        }
-
-        updateDataSnapshot();
-    }
-
-    public void initCurve()
-    {
-        if (rawPoints == null || rawPoints.Count < 2) return;
-
-        var resampled = ProceduralBuildingUtils.resamplePolyline(rawPoints, SAMPLE_POINT_DISTANCE);
-        left = ProceduralBuildingUtils.offsetPolyline(resampled, depth / 2.0f);
-        left = ProceduralBuildingUtils.repairSelfIntersections(left);
-        right = ProceduralBuildingUtils.offsetPolyline(resampled, -depth / 2.0f);
-        right = ProceduralBuildingUtils.repairSelfIntersections(right);
-
+        size = Vector2.Max(size, new Vector2(MIN_SIZE, MIN_SIZE));
+        // Prefab assets are never rendered, their meshes would only leak.
+        if (!gameObject.scene.IsValid()) return;
         updateAll();
-        updateDataSnapshot();
     }
 
     public void updateSections()
     {
-        Vector3 minB, maxB;
-        bool any = false;
-
-        if (rawPoints != null && rawPoints.Count > 0)
-        {
-            minB = rawPoints[0];
-            maxB = rawPoints[0];
-            for (int i = 1; i < rawPoints.Count; i++)
-            {
-                minB = Vector3.Min(minB, rawPoints[i]);
-                maxB = Vector3.Max(maxB, rawPoints[i]);
-            }
-            any = true;
-        }
-        else if (left != null && left.Count > 0)
-        {
-            minB = left[0];
-            maxB = left[0];
-            for (int i = 1; i < left.Count; i++)
-            {
-                minB = Vector3.Min(minB, left[i]);
-                maxB = Vector3.Max(maxB, left[i]);
-            }
-            any = true;
-        }
-        else
-        {
-            return;
-        }
-
-        if (!any) return;
-
-        float halfDepth = depth / 2.0f;
-        float x0 = minB.x - halfDepth;
-        float x1 = maxB.x + halfDepth;
-        float z0 = minB.z - halfDepth;
-        float z1 = maxB.z + halfDepth;
-
-        left = new List<Vector3>
-        {
-            new Vector3(x0, 0f, z0),
-            new Vector3(x1, 0f, z0),
-            new Vector3(x1, 0f, z1),
-            new Vector3(x0, 0f, z1),
-        };
-
-        float ix0 = x0 + depth;
-        float ix1 = x1 - depth;
-        float iz0 = z0 + depth;
-        float iz1 = z1 - depth;
-
-        right = new List<Vector3>
-        {
-            new Vector3(ix0, 0f, iz0),
-            new Vector3(ix1, 0f, iz0),
-            new Vector3(ix1, 0f, iz1),
-            new Vector3(ix0, 0f, iz1),
-        };
+        float x0 = -size.x / 2f;
+        float x1 = size.x / 2f;
+        float z0 = -size.y / 2f;
+        float z1 = size.y / 2f;
 
         Vector3 o0 = new Vector3(x0, 0f, z0);
         Vector3 o1 = new Vector3(x1, 0f, z0);
@@ -205,6 +143,11 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
     public void updateAll()
     {
+        if (buildingAsset == null)
+        {
+            clearAll();
+            return;
+        }
         updateSections();
         createMatrices();
         populateMatrices();
@@ -251,7 +194,8 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         clearMatrices();
         clearMeshes();
 
-        float floorH = transform.position.y;
+        // Local space, the ground is at the transform.
+        float floorH = 0f;
         Random.InitState(seed);
 
         RoofType effectiveRoofType;
@@ -516,7 +460,8 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         float sizeX = maxB.x - minB.x;
         float sizeZ = maxB.z - minB.z;
 
-        float apexH = floorH + buildingAsset.topPointVerticalOffset * Mathf.Min(depth, depth / 5);
+        // Roof height scales with the short side, so narrow houses get flatter roofs.
+        float apexH = floorH + buildingAsset.topPointVerticalOffset * Mathf.Min(size.x, size.y) / 5f;
 
         Vector3 ridgeA, ridgeB;
         if (type == RoofType.Hip)
@@ -569,9 +514,24 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         float uScale = 1f;
         float vScale = 1f;
 
+        // Unity front faces are clockwise, their normal is cross(b - a, c - a). Every roof face points away from the
+        // roof center, so the helpers below flip the winding themselves instead of relying on the corner order.
+        bool FacesOutward(Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector3 normal = Vector3.Cross(b - a, c - a);
+            Vector3 outward = (a + b + c) / 3f - centerXZ;
+            return Vector3.Dot(normal, outward) >= 0f;
+        }
+
         void AddTrapezoid(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
                   Vector3 baseA, Vector3 baseB, Vector3 topA, Vector3 topB)
         {
+            if (!FacesOutward(baseA, baseB, topB))
+            {
+                (baseA, baseB) = (baseB, baseA);
+                (topA, topB) = (topB, topA);
+            }
+
             int startIdx = verts.Count;
 
             float uSlopeA = Vector3.Distance(baseA, topA) * uScale;
@@ -602,6 +562,11 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         void AddTriangle(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
                   Vector3 baseA, Vector3 baseB, Vector3 top)
         {
+            if (!FacesOutward(baseA, baseB, top))
+            {
+                (baseA, baseB) = (baseB, baseA);
+            }
+
             int startIdx = verts.Count;
             float tileSize = 1.0f;
             float uBase = Vector3.Distance(baseA, baseB) / tileSize;
@@ -622,6 +587,11 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         void AddGable(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
                       Vector3 leftBase, Vector3 rightBase, Vector3 apex)
         {
+            if (!FacesOutward(leftBase, rightBase, apex))
+            {
+                (leftBase, rightBase) = (rightBase, leftBase);
+            }
+
             int startIdx = verts.Count;
 
             float width = Vector3.Distance(leftBase, rightBase);
@@ -684,31 +654,15 @@ public class ProceduralBuildingDrawer : MonoBehaviour
             }
         }
 
-        Mesh longMesh = new Mesh { indexFormat = IndexFormat.UInt32 };
-        longMesh.SetVertices(longVerts);
-        longMesh.SetUVs(0, longUvs);
-        longMesh.SetTriangles(longTris, 0);
-        longMesh.RecalculateNormals();
-        longMesh.RecalculateBounds();
-
-        Mesh shortMesh = new Mesh { indexFormat = IndexFormat.UInt32 };
-        shortMesh.SetVertices(shortVerts);
-        shortMesh.SetUVs(0, shortUvs);
-        shortMesh.SetTriangles(shortTris, 0);
-        shortMesh.RecalculateNormals();
-        shortMesh.RecalculateBounds();
-
-        roofMeshSideBottom = longMesh;
-        roofMeshSideTop = shortMesh;
+        // Reused between rebuilds, every building rebuilds on each inspector change.
+        roofMeshSideBottom = fillMesh(roofMeshSideBottom, longVerts, longUvs, longTris);
+        roofMeshSideTop = fillMesh(roofMeshSideTop, shortVerts, shortUvs, shortTris);
         roofMeshSideTopIsGable = (type == RoofType.AFrame);
-        roofMeshTop = null;
 
         List<Vector3> baseRing = new List<Vector3> { c0, c1, c2, c3 };
         outlines[OutlineType.LastFloorBase] = new Outline(new List<List<Vector3>> { baseRing }, new List<List<Vector3>>());
         outlines[OutlineType.LastFloorTop] = new Outline(new List<List<Vector3>> { new List<Vector3> { ridgeA, ridgeB } }, new List<List<Vector3>>());
         outlines[OutlineType.Roof] = new Outline(new List<List<Vector3>> { new List<Vector3> { ridgeA, ridgeB } }, new List<List<Vector3>>());
-
-        cells3D = null;
 
         var poleHorizontalModule = buildingAsset.wallRoofHorizontalPole;
         if (poleHorizontalModule == null) return;
@@ -962,23 +916,65 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
     public List<BuildingMeshInstances> getInstances() => instances;
 
+    static Mesh fillMesh(Mesh mesh, List<Vector3> verts, List<Vector2> uvs, List<int> tris)
+    {
+        if (mesh == null)
+        {
+            mesh = new Mesh { indexFormat = IndexFormat.UInt32, hideFlags = HideFlags.HideAndDontSave };
+        }
+        else
+        {
+            mesh.Clear();
+        }
+        mesh.SetVertices(verts);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(tris, 0);
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    void updateWorldMatrices(Matrix4x4 localToWorld)
+    {
+        worldMatrices.Clear();
+        foreach (var mat in modulesDictionary)
+        {
+            var local = mat.Value.matrices;
+            var world = new Matrix4x4[local.Count];
+            for (int i = 0; i < world.Length; i++)
+            {
+                world[i] = localToWorld * local[i];
+            }
+            worldMatrices[mat.Key] = world;
+        }
+        worldMatricesLocalToWorld = localToWorld;
+        worldMatricesDirty = false;
+    }
+
     void renderMatrices()
     {
-        if (modulesDictionary != null)
+        if (buildingAsset == null || modulesDictionary == null)
         {
-            foreach (var mat in modulesDictionary)
+            return;
+        }
+
+        Matrix4x4 localToWorld = transform.localToWorldMatrix;
+        if (worldMatricesDirty || localToWorld != worldMatricesLocalToWorld)
+        {
+            updateWorldMatrices(localToWorld);
+        }
+
+        foreach (var mat in worldMatrices)
+        {
+            if (mat.Key.render && mat.Value.Length > 0)
             {
-                if (mat.Key.render)
-                {
-                    Graphics.DrawMeshInstanced(mat.Key.moduleMesh, 0, mat.Key.moduleMaterial, mat.Value.matrices.ToArray(), mat.Value.count);
-                }
+                Graphics.DrawMeshInstanced(mat.Key.moduleMesh, 0, mat.Key.moduleMaterial, mat.Value, mat.Value.Length);
             }
         }
 
         if (roofMeshSideBottom != null && buildingAsset.roofTopMaterial != null)
         {
-            Matrix4x4 m = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one);
-            Graphics.DrawMesh(roofMeshSideBottom, m, buildingAsset.roofTopMaterial, 0);
+            Graphics.DrawMesh(roofMeshSideBottom, localToWorld, buildingAsset.roofTopMaterial, 0);
         }
         if (roofMeshSideTop != null)
         {
@@ -988,8 +984,7 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
             if (endMat != null)
             {
-                Matrix4x4 m = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one);
-                Graphics.DrawMesh(roofMeshSideTop, m, endMat, 0);
+                Graphics.DrawMesh(roofMeshSideTop, localToWorld, endMat, 0);
             }
         }
     }
@@ -999,6 +994,10 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         renderMatrices();
     }
 
+#if UNITY_EDITOR
+    /// <summary>
+    /// Exports the building to an fbx in local space.
+    /// </summary>
     public void createMesh()
     {
         if (modulesDictionary != null)
@@ -1089,4 +1088,5 @@ public class ProceduralBuildingDrawer : MonoBehaviour
             AssetDatabase.Refresh();
         }
     }
+#endif
 }

@@ -17,8 +17,14 @@ public class ProceduralBuildingRenderer : MonoBehaviour {
     
     void renderInstances() {
         if (instances != null) {
+            // Instance matrices are in the drawer's local space.
+            Matrix4x4 localToWorld = proceduralBuildingDrawer.transform.localToWorldMatrix;
             foreach (var instance in instances) {
-                Graphics.DrawMeshInstanced(instance.mesh, 0, instance.material, instance.matrices.ToArray(), instance.matrices.Count);
+                var matrices = new Matrix4x4[instance.matrices.Count];
+                for (int i = 0; i < matrices.Length; i++) {
+                    matrices[i] = localToWorld * instance.matrices[i];
+                }
+                Graphics.DrawMeshInstanced(instance.mesh, 0, instance.material, matrices, matrices.Length);
             }
         }
     }

@@ -114,3 +114,4 @@ InitTestScene*.unity*
 # Site profiles for sites that must stay private: local only, never committed (D-016)
 /[Aa]ssets/Thermal/Profiles/Internal/
 /[Aa]ssets/Thermal/Profiles/Internal.meta
+/[Aa]ssets/Test Data/
