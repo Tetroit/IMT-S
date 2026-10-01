@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f35e79c23ece9ba469a8d7a9fb3db05f, type: 3}
+  m_Name: BuildingAsset
+  m_EditorClassIdentifier: Assembly-CSharp::BuildingSettings
+  wallGroundFloor: {fileID: 11400000, guid: 3fddc88b6dd9ae94ab896d4d08a23543, type: 2}
+  wallGroundFloorL: {fileID: 11400000, guid: 2c776549c4e465e458ca60724412b463, type: 2}
+  wallGroundFloorR: {fileID: 11400000, guid: a007c49106dc0ce42a181926f6e776b8, type: 2}
+  doorGroundFloor: {fileID: 11400000, guid: 0cb8e19665250ff4aa33beee70284907, type: 2}
+  columnGroundFloor: {fileID: 11400000, guid: 4121df63f53ea1a42b7f9fd496e79b8a, type: 2}
+  wallRoofHorizontalPole: {fileID: 11400000, guid: f8d1637524e71d1448866ae9f820bfb4, type: 2}
+  wallGroundFloorWindow: {fileID: 11400000, guid: d613fb6c191888b49bb9c81cf5c9254a, type: 2}
+  roofSidesMaterial: {fileID: 2100000, guid: 0b2f41cd66bac9b4e9f568ba1ff21959, type: 2}
+  roofTopMaterial: {fileID: 2100000, guid: 0b2f41cd66bac9b4e9f568ba1ff21959, type: 2}
+  aFrameGableMaterial: {fileID: 2100000, guid: d3592baf86c20294eab5f486e2b28d03, type: 2}
+  topPointVerticalOffset: 1.43
