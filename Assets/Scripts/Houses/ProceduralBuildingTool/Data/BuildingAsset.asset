@@ -16,48 +16,10 @@ MonoBehaviour:
   wallGroundFloorL: {fileID: 11400000, guid: 2c776549c4e465e458ca60724412b463, type: 2}
   wallGroundFloorR: {fileID: 11400000, guid: a007c49106dc0ce42a181926f6e776b8, type: 2}
   doorGroundFloor: {fileID: 11400000, guid: 0cb8e19665250ff4aa33beee70284907, type: 2}
-  wallMezzanine: {fileID: 11400000, guid: c741b0a856d83944b8a0661db3cd3b2f, type: 2}
-  wallMezzanineL: {fileID: 11400000, guid: 8b69c80b7acf643459766cd6da07a496, type: 2}
-  wallMezzanineR: {fileID: 11400000, guid: 4e4a1bbf70130634b9831909dd4a8374, type: 2}
-  doorMezzanine: {fileID: 11400000, guid: c6d16455ae2103a46bd34e03cf8ad4f2, type: 2}
-  wallIntermediateFloors:
-  - {fileID: 11400000, guid: 3e69df1d30d22154683aa80f7d760da6, type: 2}
-  - {fileID: 11400000, guid: 4678090835a5b164a988574c6e78b6ac, type: 2}
-  wallLastFloor: {fileID: 11400000, guid: 6313bd08f49455f44953972677401561, type: 2}
-  wallLastFloorEmpty: {fileID: 11400000, guid: 9ae9b7ae47723674ea927a8be19c6dba, type: 2}
-  wallRoofVerticalPole: {fileID: 11400000, guid: 313e3e1e8ffd98b4cb0909d9db859243, type: 2}
-  wallRoofHorizontalPole: {fileID: 11400000, guid: f8d1637524e71d1448866ae9f820bfb4, type: 2}
   columnGroundFloor: {fileID: 11400000, guid: 4121df63f53ea1a42b7f9fd496e79b8a, type: 2}
-  columnMezzanine: {fileID: 11400000, guid: de4280c1cdc332c43a5a5b8b16fb19e5, type: 2}
-  columnIntermediate: {fileID: 11400000, guid: 1d2a4a162e1c23345bad1c9514fc726e, type: 2}
-  decorativeWindow: {fileID: 11400000, guid: 2739d86eb154d4b40baaa95904adac8a, type: 2}
-  decorativeWindowFirst: {fileID: 11400000, guid: e1f1433140e819d40b281b68274c03ec, type: 2}
-  decorativeWindowLast: {fileID: 11400000, guid: 8e1984165a39f9046aae7195913eeb8b, type: 2}
-  decorativeWindowSingle: {fileID: 11400000, guid: c3297c257a85eef47b131e8ecbef95cd, type: 2}
-  decorativeRoofWindow: {fileID: 0}
-  restaurantCenter: {fileID: 11400000, guid: d4e1389e6c5708b41a25635cee5c0ef3, type: 2}
-  restaurantLeft: {fileID: 11400000, guid: b31bd7bfe5ddec5478c80bb7f2d16d0a, type: 2}
-  restaurantRight: {fileID: 11400000, guid: f205883b1612d52459771cc5fcdbbb08, type: 2}
-  restaurantSingle: {fileID: 11400000, guid: a75729dd19499294da117237542c074b, type: 2}
-  balconyCenter: {fileID: 0}
-  balconyLeft: {fileID: 0}
-  balconyRight: {fileID: 0}
-  balconySingle: {fileID: 0}
-  balconySingleVariation: {fileID: 0}
-  woodenPlanks0: {fileID: 11400000, guid: eb96c2d831354e349a230a7d3ac0043c, type: 2}
-  woodenPlanks1: {fileID: 11400000, guid: ccfcbbf6c6c0b7d40ba83572501d2adc, type: 2}
-  terraceColumn: {fileID: 11400000, guid: b2a31fb9eee714b479c71d9e32b7af79, type: 2}
-  terraceWall: {fileID: 11400000, guid: 2d54ce416728c64439191f2ad3208d11, type: 2}
+  wallRoofHorizontalPole: {fileID: 11400000, guid: f8d1637524e71d1448866ae9f820bfb4, type: 2}
   wallGroundFloorWindow: {fileID: 11400000, guid: d613fb6c191888b49bb9c81cf5c9254a, type: 2}
-  wallMezzanineWindow: {fileID: 11400000, guid: d613fb6c191888b49bb9c81cf5c9254a, type: 2}
-  wallIntermediateWindows:
-  - {fileID: 11400000, guid: d613fb6c191888b49bb9c81cf5c9254a, type: 2}
-  wallLastFloorWindow: {fileID: 11400000, guid: d613fb6c191888b49bb9c81cf5c9254a, type: 2}
-  roofSidesMaterial: {fileID: 2100000, guid: 9eb811c6c82b5dd4baf224ad229f3d6f, type: 2}
-  roofTopMaterial: {fileID: 2100000, guid: 9eb811c6c82b5dd4baf224ad229f3d6f, type: 2}
-  terraceMaterial: {fileID: 2100000, guid: e03d38fdf7976554ca266ef4a9d38ca1, type: 2}
-  aFrameGableMaterial: {fileID: 2100000, guid: 5292befc1dd2b9243a62ecb2c7d9ccbf, type: 2}
-  midPointVerticalOffset: 0
-  midPointHorizontalOffset: 0.13
+  roofSidesMaterial: {fileID: 2100000, guid: 0b2f41cd66bac9b4e9f568ba1ff21959, type: 2}
+  roofTopMaterial: {fileID: 2100000, guid: 0b2f41cd66bac9b4e9f568ba1ff21959, type: 2}
+  aFrameGableMaterial: {fileID: 2100000, guid: d3592baf86c20294eab5f486e2b28d03, type: 2}
   topPointVerticalOffset: 1.43
-  topPointHorizontalOffset: 0.5

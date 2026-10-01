@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: DoorGroundFloor
   m_EditorClassIdentifier: Assembly-CSharp::BuildingModule
   moduleMesh: {fileID: 2619086233303812490, guid: f5714a47fe3aad1439abd711c70aac51, type: 3}
-  moduleMaterial: {fileID: 2100000, guid: 9cb5ec4854bdf1546b2d278eb21ef3e1, type: 2}
+  moduleMaterial: {fileID: 2100000, guid: 7d79a1792a3b1ad4a90464d47d9bbc01, type: 2}
   canStretch: 0
   customWidth: 1.5
   render: 1

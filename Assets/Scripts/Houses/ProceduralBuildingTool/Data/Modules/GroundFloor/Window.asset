@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Window
   m_EditorClassIdentifier: Assembly-CSharp::BuildingModule
   moduleMesh: {fileID: 1049928748687988745, guid: ec024d0373e959442b52af373546a922, type: 3}
-  moduleMaterial: {fileID: 2100000, guid: 5008617949f601646b7234223d302264, type: 2}
+  moduleMaterial: {fileID: 2100000, guid: 9bad15a2da8f67d46864aac581daf385, type: 2}
   canStretch: 1
   customWidth: 1.5
   render: 1

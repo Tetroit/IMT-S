@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: ColumnGroundFloor
   m_EditorClassIdentifier: Assembly-CSharp::BuildingModule
   moduleMesh: {fileID: -8350586793595885131, guid: 16afb1c4eca764c46878ba1fe70ff6f0, type: 3}
-  moduleMaterial: {fileID: 2100000, guid: 5292befc1dd2b9243a62ecb2c7d9ccbf, type: 2}
+  moduleMaterial: {fileID: 2100000, guid: d3592baf86c20294eab5f486e2b28d03, type: 2}
   canStretch: 0
   customWidth: 0
   render: 1
