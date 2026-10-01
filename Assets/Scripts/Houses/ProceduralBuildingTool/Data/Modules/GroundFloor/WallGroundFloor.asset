@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: WallGroundFloor
   m_EditorClassIdentifier: Assembly-CSharp::BuildingModule
   moduleMesh: {fileID: 8733429697405204941, guid: e69377e630b81fb4f9beb21001281b52, type: 3}
-  moduleMaterial: {fileID: 2100000, guid: 5292befc1dd2b9243a62ecb2c7d9ccbf, type: 2}
+  moduleMaterial: {fileID: 2100000, guid: d3592baf86c20294eab5f486e2b28d03, type: 2}
   canStretch: 1
   customWidth: 0
   render: 1

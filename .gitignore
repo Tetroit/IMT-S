@@ -107,4 +107,11 @@ InitTestScene*.unity*
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
 
-Assets/Test Data/
+# Local working notes, deliberately untracked
+/notes/
+/Captures
+
+# Site profiles for sites that must stay private: local only, never committed (D-016)
+/[Aa]ssets/Thermal/Profiles/Internal/
+/[Aa]ssets/Thermal/Profiles/Internal.meta
+/[Aa]ssets/Test Data/
