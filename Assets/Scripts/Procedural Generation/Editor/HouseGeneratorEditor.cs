@@ -16,7 +16,16 @@ namespace ProceduralGeneration.Editor
                 houseGenerator.FindHouses();
                 SceneView.RepaintAll();
             }
+            if (GUILayout.Button("Generate Buildings"))
+            {
+                houseGenerator.GenerateBuildings();
+            }
+            if (GUILayout.Button("Destroy Buildings"))
+            {
+                houseGenerator.DestroyBuildings();
+            }
             EditorGUILayout.LabelField("Houses", houseGenerator.houses.Count.ToString());
+            EditorGUILayout.LabelField("Buildings", houseGenerator.buildings.Count.ToString());
         }
     }
 }

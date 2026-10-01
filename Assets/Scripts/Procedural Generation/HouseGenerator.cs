@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.SceneManagement;
+#endif
 using UnityEngine;
 
 namespace ProceduralGeneration
@@ -17,6 +21,15 @@ namespace ProceduralGeneration
         [SerializeField] private int _minPixels = 20;
         [Tooltip("Diagonal pixels count as adjacent (8-connectivity), otherwise only edges do (4-connectivity).")]
         [SerializeField] private bool _diagonalAdjacency = false;
+
+        [Header("Buildings")]
+        [Tooltip("Prefab with a ProceduralBuildingDrawer, instantiated once per house.")]
+        [SerializeField] private ProceduralBuildingDrawer _buildingPrefab;
+        [Tooltip("Floor count per building including the roof floor, both ends inclusive.")]
+        [SerializeField] private Vector2Int _floorRange = new Vector2Int(2, 3);
+        [SerializeField] private int _seed = 0;
+        // Serialized, unlike the houses, so the buildings can still be destroyed after a domain reload.
+        [SerializeField, HideInInspector] private List<ProceduralBuildingDrawer> _buildings = new List<ProceduralBuildingDrawer>();
 
         [Header("Gizmos")]
         [SerializeField] private Color _gizmoColor = new Color(0.9f, 0.2f, 0.15f);
@@ -63,6 +76,7 @@ namespace ProceduralGeneration
         private Vector3[] _gizmoLines;
 
         public IReadOnlyList<House> houses => _houses;
+        public IReadOnlyList<ProceduralBuildingDrawer> buildings => _buildings;
 
 
         public bool OverlapsHouses(Vector2 point)
@@ -241,6 +255,93 @@ namespace ProceduralGeneration
                 (float)(meanY + midU * sin + midV * cos));
             angle = (float)theta;
             size = new Vector2((float)(maxU - minU), (float)(maxV - minV));
+        }
+
+        /// <summary>
+        /// Instantiates <see cref="_buildingPrefab"/> on every house box, replacing the previously generated buildings.
+        /// </summary>
+        public void GenerateBuildings()
+        {
+            if (_buildingPrefab == null)
+            {
+                Logger.Logger.LogError($"Building prefab is null", "ProcGen", this);
+                return;
+            }
+            if (_geometryContext == null)
+            {
+                Logger.Logger.LogError($"Geometry context is null", "ProcGen", this);
+                return;
+            }
+            if (_houses.Count == 0)
+            {
+                Logger.Logger.LogWarning($"No houses, run Find Houses first", "ProcGen", this);
+                return;
+            }
+
+            DestroyBuildings();
+
+            // Building modules are in metres, the scale brings them to Unity units so the box size is passed in metres.
+            float meterScale = _geometryContext.GetMeterScale();
+            // Own generator, the drawers reseed UnityEngine.Random on every rebuild.
+            var random = new System.Random(_seed);
+            int minFloors = Mathf.Max(1, Mathf.Min(_floorRange.x, _floorRange.y));
+            int maxFloors = Mathf.Max(1, Mathf.Max(_floorRange.x, _floorRange.y));
+
+            for (int i = 0; i < _houses.Count; i++)
+            {
+                House house = _houses[i];
+                ProceduralBuildingDrawer building = InstantiateBuilding();
+                building.name = $"Building {i.ToString()}";
+                building.transform.SetPositionAndRotation(house.center, house.rotation);
+                building.transform.localScale = Vector3.one * meterScale;
+                // Keeps the world scale, the generator itself may be scaled.
+                building.transform.SetParent(transform, true);
+
+                building.floors = random.Next(minFloors, maxFloors + 1);
+                building.seed = random.Next();
+                building.setRectangle(house.size / meterScale);
+                _buildings.Add(building);
+            }
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                EditorSceneManager.MarkSceneDirty(gameObject.scene);
+#endif
+            Logger.Logger.Log($"Generated {_buildings.Count.ToString()} buildings", "ProcGen");
+        }
+
+        private ProceduralBuildingDrawer InstantiateBuilding()
+        {
+#if UNITY_EDITOR
+            // Keeps the prefab link in edit mode, so changes to the prefab reach every building.
+            if (!Application.isPlaying && PrefabUtility.IsPartOfPrefabAsset(_buildingPrefab))
+            {
+                var instance = (GameObject)PrefabUtility.InstantiatePrefab(_buildingPrefab.gameObject);
+                return instance.GetComponent<ProceduralBuildingDrawer>();
+            }
+#endif
+            return Instantiate(_buildingPrefab);
+        }
+
+        public void DestroyBuildings()
+        {
+            foreach (var building in _buildings)
+            {
+                // Already gone if it was deleted by hand.
+                if (building == null)
+                    continue;
+#if UNITY_EDITOR
+                DestroyImmediate(building.gameObject);
+#else
+                Destroy(building.gameObject);
+#endif
+            }
+            _buildings.Clear();
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                EditorSceneManager.MarkSceneDirty(gameObject.scene);
+#endif
         }
 
         private void OnDrawGizmosSelected()
