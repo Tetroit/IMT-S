@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d4e632fc71b1aa34dbf2e08518af3970, type: 3}
+  m_Name: DoorGroundFloor
+  m_EditorClassIdentifier: Assembly-CSharp::BuildingModule
+  moduleMesh: {fileID: 2619086233303812490, guid: f5714a47fe3aad1439abd711c70aac51, type: 3}
+  moduleMaterial: {fileID: 2100000, guid: 9cb5ec4854bdf1546b2d278eb21ef3e1, type: 2}
+  canStretch: 0
+  customWidth: 1.5
+  render: 1
+  canBeAltered: 1
+  canHaveBalcony: 0
