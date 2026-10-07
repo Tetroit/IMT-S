@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d4e632fc71b1aa34dbf2e08518af3970, type: 3}
   m_Name: WallGroundFloorDecenteredL
   m_EditorClassIdentifier: Assembly-CSharp::BuildingModule
-  moduleMesh: {fileID: 5405410596257239868, guid: 297005cd77646754cb5e475476fe1a25, type: 3}
-  moduleMaterial: {fileID: 2100000, guid: d3592baf86c20294eab5f486e2b28d03, type: 2}
+  moduleMesh: {fileID: 5405410596257239868, guid: d7424976c58e06e47b5ceedbc211a754, type: 3}
+  moduleMaterial: {fileID: 2100000, guid: 146724aea7490d84983525419b5369c5, type: 2}
   canStretch: 1
   customWidth: 1.5
   render: 1
