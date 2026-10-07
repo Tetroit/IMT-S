@@ -37,6 +37,25 @@ namespace IMT.Thermal
         public static readonly int k_NormalMipBias = Shader.PropertyToID("_ThermalNormalMipBias");
         public static readonly int k_MapST = Shader.PropertyToID("_ThermalMapST");
 
+        /// <summary>
+        /// Writes these properties into a block, for Thermal/Base to read per draw. ThermalObject hands the block to
+        /// its Renderer, code that draws through Graphics passes it to the draw call.
+        /// </summary>
+        public void ApplyTo(MaterialPropertyBlock block)
+        {
+            block.SetFloat(k_Emissivity, m_Emissivity);
+            block.SetFloat(k_SolarAbsorptivity, m_SolarAbsorptivity);
+
+            // Maps: a missing one is switched off, not faked - the shader skips it, so an object without
+            // maps renders exactly as before. The stand-in textures only keep the slots bound.
+            bool properties = m_PropertyMap != null, normals = m_NormalMap != null;
+            block.SetTexture(k_PropertyMap, properties ? m_PropertyMap : Texture2D.whiteTexture);
+            block.SetFloat(k_PropertyMapOn, properties ? 1f : 0f);
+            block.SetTexture(k_NormalMap, normals ? m_NormalMap : Texture2D.normalTexture);
+            block.SetFloat(k_NormalStrength, normals ? m_NormalStrength : 0f);
+            block.SetFloat(k_NormalMipBias, m_NormalMipBias);
+            block.SetVector(k_MapST, new Vector4(m_Tiling.x, m_Tiling.y, m_Offset.x, m_Offset.y));
+        }
 
         private void OnValidate()
         {

@@ -47,11 +47,12 @@ public class RoadNetworkBuilder : MonoBehaviour
     public float smoothingStrength = 0.25f;
 
     [Header("Placement")]
-    [Tooltip("Scene-wide mercator -> Unity conversion.")]
-    public GeometryContext geometryContext;
+    [Tooltip("Mercator -> Unity conversion. Leave empty to use the GlobalConfig in the scene.")]
+    [SerializeField] private GeometryConfig _geometryConfig;
+    public GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
 
     // Unity units per pixel: mercator units per pixel * Unity units per mercator unit.
-    public float pixelToWorldScale => (float)(context.scale * geometryContext.scale);
+    public float pixelToWorldScale => (float)(context.scale * geometryConfig.scale);
 
     [Tooltip("If true, spawns a LineRenderer per edge at runtime.")]
     public bool drawWithLineRenderers = true;
@@ -67,7 +68,7 @@ public class RoadNetworkBuilder : MonoBehaviour
 
     private void Start()
     {
-        Build();
+        // Build();
     }
 
     [ContextMenu("Build Road Graph")]
@@ -79,14 +80,14 @@ public class RoadNetworkBuilder : MonoBehaviour
             return;
         }
 
-        if (geometryContext == null)
+        if (geometryConfig == null)
         {
-            Logger.Logger.LogError("RoadNetworkBuilder: geometryConfig is empty.", "RoadGen", this);
+            Logger.Logger.LogError("RoadNetworkBuilder: geometryConfig is empty, assign one or add a GlobalConfig to the scene.", "RoadGen", this);
             return;
         }
 
         // World position of the image's top-left corner (pixel 0,0).
-        DoubleVector2 mercatorOffset = context.GetWorldPos(geometryContext.origin) * geometryContext.scale;
+        DoubleVector2 mercatorOffset = context.GetWorldPos(geometryConfig.origin) * geometryConfig.scale;
         Graph = RoadGraphExtractor.ExtractFromTile(
             context,
             roadID,
@@ -143,11 +144,11 @@ public class RoadNetworkBuilder : MonoBehaviour
     // Editor-time visualization even without pressing Play, once Graph has been built once.
     private void OnDrawGizmos()
     {
-        if (context != null && geometryContext != null)
+        if (context != null && geometryConfig != null)
         {
             Gizmos.color = Color.darkMagenta;
-            double[] mercatorBB = context.GetWorldSpaceBounds(geometryContext.origin);
-            float s = (float)geometryContext.scale;
+            double[] mercatorBB = context.GetWorldSpaceBounds(geometryConfig.origin);
+            float s = (float)geometryConfig.scale;
             Vector3[] imageCorners = new Vector3[4]
             {
                 new Vector3((float)mercatorBB[0] * s, 0, (float)mercatorBB[1] * s),

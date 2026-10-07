@@ -1,13 +1,13 @@
-using System;
 using UnityEngine;
 
 namespace ProceduralGeneration
 {
     /// <summary>
-    /// Global scene config for converting mercator coordinates (EPSG:3857) to Unity space.
+    /// Converts mercator coordinates (EPSG:3857) to Unity space.
     /// Unity position = (mercator - origin) * scale.
     /// </summary>
-    public class GeometryContext : MonoBehaviour
+    [CreateAssetMenu(menuName = "Procedural Generation/Geometry Config")]
+    public class GeometryConfig : ScriptableObject
     {
         [Tooltip("Unity units per mercator unit.")]
         public double scale = 1.0;
@@ -29,11 +29,12 @@ namespace ProceduralGeneration
             origin.y = (bounds[1] + bounds[3])/2;
         }
 
+        /// <summary>
+        /// Unity units per ground metre at the origin's latitude.
+        /// </summary>
         public float GetMeterScale()
         {
-            const double earthRadius = 6378137.0;
-            double latitude = 2 * Math.Atan(Math.Exp(origin.y / earthRadius)) - Math.PI / 2;
-            return (float)(scale / Math.Cos(latitude));
+            return (float)(scale * WebMercator.MercatorPerMeter(origin.y));
         }
     }
 }

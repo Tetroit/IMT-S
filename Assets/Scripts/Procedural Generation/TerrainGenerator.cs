@@ -13,7 +13,9 @@ namespace ProceduralGeneration
         [SerializeField] private Transform _camera;
         [SerializeField] private GameObject _tilePrefab;
         [SerializeField] private SatContext.SatContext _satContext;
-        [SerializeField] private GeometryContext _geometryContext;
+        [Tooltip("Leave empty to use the GlobalConfig in the scene.")]
+        [SerializeField] private GeometryConfig _geometryConfig;
+        private GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
 
         [Header("Mesh config")]
         [Range(1,16)]
@@ -84,9 +86,9 @@ namespace ProceduralGeneration
                 Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
                 return;
             }
-            if (_geometryContext == null)
+            if (geometryConfig == null)
             {
-                Logger.Logger.LogError($"Geometry context is null", "ProcGen", this);
+                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
                 return;
             }
             if (_tilePrefab == null)
@@ -121,7 +123,7 @@ namespace ProceduralGeneration
             double heightmapScaleY = (double)heightmapHeight / imageHeight;
 
             // Mercator bounds [minX, minY, maxX, maxY] relative to the geometry origin.
-            double[] bounds = _satContext.GetWorldSpaceBounds(_geometryContext.origin);
+            double[] bounds = _satContext.GetWorldSpaceBounds(geometryConfig.origin);
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
 
@@ -129,7 +131,7 @@ namespace ProceduralGeneration
             const double earthRadius = 6378137.0;
             double centerMercatorY = (_satContext.metadata.output.mercatorBoundsM[1] + _satContext.metadata.output.mercatorBoundsM[3]) / 2;
             double latitude = 2 * Math.Atan(Math.Exp(centerMercatorY / earthRadius)) - Math.PI / 2;
-            float heightScale = (float)(_geometryContext.scale / Math.Cos(latitude));
+            float heightScale = (float)(geometryConfig.scale / Math.Cos(latitude));
 
             // Bilinear sample, x and y are pixel coordinates in heightmap space (pixel centers at .5).
             float SampleHeightMap(double x, double y)
@@ -187,8 +189,8 @@ namespace ProceduralGeneration
             var submeshKeys = new List<(int segId, int agricultureIndex)>();
             var quadVerts = new Vector3[4];
 
-            float pixelEdgeX = (float)(pixelSizeX * _geometryContext.scale);
-            float pixelEdgeZ = (float)(pixelSizeY * _geometryContext.scale);
+            float pixelEdgeX = (float)(pixelSizeX * geometryConfig.scale);
+            float pixelEdgeZ = (float)(pixelSizeY * geometryConfig.scale);
 
             // Agriculture quads pick the _agricultureMaterials entry whose key is closest to their sat color.
             Texture2D colorImage = _satContext.colorImage;
@@ -301,9 +303,9 @@ namespace ProceduralGeneration
 
                     // Chunk origin is its top-left corner, image y goes down so unity z goes negative.
                     Vector3 chunkPos = new Vector3(
-                        (float)((bounds[0] + startX * pixelSizeX) * _geometryContext.scale),
+                        (float)((bounds[0] + startX * pixelSizeX) * geometryConfig.scale),
                         0,
-                        (float)((bounds[3] - startY * pixelSizeY) * _geometryContext.scale));
+                        (float)((bounds[3] - startY * pixelSizeY) * geometryConfig.scale));
 
                     // Quad over pixels [x0, x0+size) x [y0, y0+size) of the chunk, clamped to the image edge.
                     void AddBlockQuad(int x0, int y0, int size, int segId)

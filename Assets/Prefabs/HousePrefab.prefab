@@ -47,10 +47,11 @@ MonoBehaviour:
   showOutlines: 0
   size: {x: 12.904768, y: 10.169573}
   floors: 2
-  seed: 0
+  seed: 122
   newRandomPerRule: 0
   buildingAsset: {fileID: 11400000, guid: 2b1ed1ceffeb850418f97a7430f482a0, type: 2}
   populateInstances: 0
   roofType: 0
   debugRoofType: 1
   overrideRoofForDebug: 0
+  thermalMaterial: {fileID: 11400000, guid: 0fdacb1397a812941a98b5426d9ef0b7, type: 2}

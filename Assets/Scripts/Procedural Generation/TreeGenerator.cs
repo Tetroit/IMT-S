@@ -8,7 +8,9 @@ namespace ProceduralGeneration
     public class TreeGenerator : MonoBehaviour
     {
         [SerializeField] private SatContext.SatContext _satContext;
-        [SerializeField] private GeometryContext _geometryContext;
+        [Tooltip("Leave empty to use the GlobalConfig in the scene.")]
+        [SerializeField] private GeometryConfig _geometryConfig;
+        private GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
         [SerializeField] private HouseGenerator _houseGenerator;
 
         [Header("Distribution")]
@@ -48,9 +50,9 @@ namespace ProceduralGeneration
                 Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
                 return;
             }
-            if (_geometryContext == null)
+            if (geometryConfig == null)
             {
-                Logger.Logger.LogError($"Geometry context is null", "ProcGen", this);
+                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
                 return;
             }
             var segmentation = _satContext.segmentationImage;
@@ -72,12 +74,12 @@ namespace ProceduralGeneration
             int imageHeight = segmentation.height;
 
             // Same pixel -> world mapping as TerrainGenerator.CreateMeshForContext.
-            double[] bounds = _satContext.GetWorldSpaceBounds(_geometryContext.origin);
+            double[] bounds = _satContext.GetWorldSpaceBounds(geometryConfig.origin);
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
 
             // Mercator pixels are square, sampling runs in pixel space.
-            float radius = (float)(_radius / (pixelSizeX * _geometryContext.scale));
+            float radius = (float)(_radius / (pixelSizeX * geometryConfig.scale));
             float radiusSqr = radius * radius;
 
             // Background grid, a cell holds at most one point since its diagonal is the radius.
@@ -111,14 +113,14 @@ namespace ProceduralGeneration
                 if (_houseGenerator == null)
                     return false;
                 var world = new Vector2(
-                    (float)((bounds[0] + p.x * pixelSizeX) * _geometryContext.scale),
-                    (float)((bounds[3] - p.y * pixelSizeY) * _geometryContext.scale));
+                    (float)((bounds[0] + p.x * pixelSizeX) * geometryConfig.scale),
+                    (float)((bounds[3] - p.y * pixelSizeY) * geometryConfig.scale));
                 return _houseGenerator.OverlapsHouses(world);
             }
 
             // Margin check probes 2 rings (margin and margin / 2) of 8 directions instead of a full disk,
             // thin gaps between probes can be missed.
-            float margin = (float)(_margin / (pixelSizeX * _geometryContext.scale));
+            float margin = (float)(_margin / (pixelSizeX * geometryConfig.scale));
             var marginOffsets = new List<Vector2>();
             if (margin > 0)
             {
@@ -229,7 +231,7 @@ namespace ProceduralGeneration
                 }
             }
             
-            float heightScale = _geometryContext.GetMeterScale();
+            float heightScale = geometryConfig.GetMeterScale();
 
             _points.Clear();
             foreach (var sample in samples)
@@ -237,9 +239,9 @@ namespace ProceduralGeneration
                 float height = hasHeightmap ? heightScale * SampleHeight(heightmap, sample.x / imageWidth, sample.y / imageHeight) : 0;
                 // Image y goes down so unity z goes negative.
                 _points.Add(new Vector3(
-                    (float)((bounds[0] + sample.x * pixelSizeX) * _geometryContext.scale),
+                    (float)((bounds[0] + sample.x * pixelSizeX) * geometryConfig.scale),
                     height,
-                    (float)((bounds[3] - sample.y * pixelSizeY) * _geometryContext.scale)));
+                    (float)((bounds[3] - sample.y * pixelSizeY) * geometryConfig.scale)));
             }
             
             _gizmoLines = null;

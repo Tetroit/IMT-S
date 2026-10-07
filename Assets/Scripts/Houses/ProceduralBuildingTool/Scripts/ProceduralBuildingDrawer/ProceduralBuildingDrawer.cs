@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using IMT.Thermal;
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEditor.Formats.Fbx.Exporter;
@@ -38,6 +39,11 @@ public class ProceduralBuildingDrawer : MonoBehaviour
     [Tooltip("If true, overrides roofType with debugRoofType. For testing only.")]
     public bool overrideRoofForDebug = false;
 
+    [Header("Thermal")]
+    [Tooltip("Thermal properties for the whole building. Stands in for a ThermalObject, which needs a Renderer this " +
+             "drawer does not have. Empty = the thermal shader's defaults.")]
+    public ThermalMaterial thermalMaterial;
+
     [HideInInspector]
     public Dictionary<OutlineType, Outline> outlines = new Dictionary<OutlineType, Outline>();
     [HideInInspector]
@@ -54,6 +60,8 @@ public class ProceduralBuildingDrawer : MonoBehaviour
     readonly Dictionary<BuildingModule, Matrix4x4[]> worldMatrices = new Dictionary<BuildingModule, Matrix4x4[]>();
     Matrix4x4 worldMatricesLocalToWorld;
     bool worldMatricesDirty = true;
+
+    MaterialPropertyBlock thermalBlock;
 
     /// <summary>
     /// Sets the footprint rectangle and rebuilds the building.
@@ -930,6 +938,8 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         mesh.SetUVs(0, uvs);
         mesh.SetTriangles(tris, 0);
         mesh.RecalculateNormals();
+        // The thermal normal map needs tangents.
+        mesh.RecalculateTangents();
         mesh.RecalculateBounds();
         return mesh;
     }
@@ -964,17 +974,21 @@ public class ProceduralBuildingDrawer : MonoBehaviour
             updateWorldMatrices(localToWorld);
         }
 
+        MaterialPropertyBlock properties = thermalProperties();
+        int layer = gameObject.layer;
+
         foreach (var mat in worldMatrices)
         {
             if (mat.Key.render && mat.Value.Length > 0)
             {
-                Graphics.DrawMeshInstanced(mat.Key.moduleMesh, 0, mat.Key.moduleMaterial, mat.Value, mat.Value.Length);
+                Graphics.DrawMeshInstanced(mat.Key.moduleMesh, 0, mat.Key.moduleMaterial, mat.Value, mat.Value.Length,
+                    properties, ShadowCastingMode.On, true, layer);
             }
         }
 
         if (roofMeshSideBottom != null && buildingAsset.roofTopMaterial != null)
         {
-            Graphics.DrawMesh(roofMeshSideBottom, localToWorld, buildingAsset.roofTopMaterial, 0);
+            Graphics.DrawMesh(roofMeshSideBottom, localToWorld, buildingAsset.roofTopMaterial, layer, null, 0, properties);
         }
         if (roofMeshSideTop != null)
         {
@@ -984,9 +998,28 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
             if (endMat != null)
             {
-                Graphics.DrawMesh(roofMeshSideTop, localToWorld, endMat, 0);
+                Graphics.DrawMesh(roofMeshSideTop, localToWorld, endMat, layer, null, 0, properties);
             }
         }
+    }
+
+    /// <summary>
+    /// The thermal pass replaces every material with Thermal/Base and reads the per-draw property block, so the
+    /// building carries its ThermalMaterial in the block it passes to each draw. Refilled every frame so edits to the
+    /// asset show up without a rebuild. Null without a thermal material.
+    /// </summary>
+    MaterialPropertyBlock thermalProperties()
+    {
+        if (thermalMaterial == null)
+        {
+            return null;
+        }
+        if (thermalBlock == null)
+        {
+            thermalBlock = new MaterialPropertyBlock();
+        }
+        thermalMaterial.ApplyTo(thermalBlock);
+        return thermalBlock;
     }
 
     void Update()

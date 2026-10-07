@@ -11,7 +11,9 @@ namespace ProceduralGeneration
     public class HouseGenerator : MonoBehaviour
     {
         [SerializeField] private SatContext.SatContext _satContext;
-        [SerializeField] private GeometryContext _geometryContext;
+        [Tooltip("Leave empty to use the GlobalConfig in the scene.")]
+        [SerializeField] private GeometryConfig _geometryConfig;
+        private GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
 
         [Header("Detection")]
         [Tooltip("Segmentation id of building pixels (\"building\" class).")]
@@ -98,9 +100,9 @@ namespace ProceduralGeneration
                 Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
                 return;
             }
-            if (_geometryContext == null)
+            if (geometryConfig == null)
             {
-                Logger.Logger.LogError($"Geometry context is null", "ProcGen", this);
+                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
                 return;
             }
             var segmentation = _satContext.segmentationImage;
@@ -119,10 +121,10 @@ namespace ProceduralGeneration
             int imageHeight = segmentation.height;
 
             // Same pixel -> world mapping as TerrainGenerator.CreateMeshForContext.
-            double[] bounds = _satContext.GetWorldSpaceBounds(_geometryContext.origin);
+            double[] bounds = _satContext.GetWorldSpaceBounds(geometryConfig.origin);
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
-            float heightScale = _geometryContext.GetMeterScale();
+            float heightScale = geometryConfig.GetMeterScale();
 
             int[] offsetsX = _diagonalAdjacency ? new[] { 1, -1, 0, 0, 1, 1, -1, -1 } : new[] { 1, -1, 0, 0 };
             int[] offsetsY = _diagonalAdjacency ? new[] { 0, 0, 1, -1, 1, -1, 1, -1 } : new[] { 0, 0, 1, -1 };
@@ -173,15 +175,15 @@ namespace ProceduralGeneration
                 {
                     // Image y goes down so unity z goes negative.
                     center = new Vector3(
-                        (float)((bounds[0] + center.x * pixelSizeX) * _geometryContext.scale),
+                        (float)((bounds[0] + center.x * pixelSizeX) * geometryConfig.scale),
                         height,
-                        (float)((bounds[3] - center.y * pixelSizeY) * _geometryContext.scale)),
+                        (float)((bounds[3] - center.y * pixelSizeY) * geometryConfig.scale)),
                     // Flipping y turns the image's clockwise angle into Unity's clockwise-from-above yaw,
                     // yaw a maps local x to (cos a, 0, -sin a), which is the image axis (cos a, sin a) with y flipped.
                     rotation = Quaternion.Euler(0, angle * Mathf.Rad2Deg, 0),
                     size = new Vector2(
-                        (float)(size.x * pixelSizeX * _geometryContext.scale),
-                        (float)(size.y * pixelSizeY * _geometryContext.scale)),
+                        (float)(size.x * pixelSizeX * geometryConfig.scale),
+                        (float)(size.y * pixelSizeY * geometryConfig.scale)),
                     pixelCount = pixels.Count,
                 });
             }
@@ -267,9 +269,9 @@ namespace ProceduralGeneration
                 Logger.Logger.LogError($"Building prefab is null", "ProcGen", this);
                 return;
             }
-            if (_geometryContext == null)
+            if (geometryConfig == null)
             {
-                Logger.Logger.LogError($"Geometry context is null", "ProcGen", this);
+                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
                 return;
             }
             if (_houses.Count == 0)
@@ -281,7 +283,7 @@ namespace ProceduralGeneration
             DestroyBuildings();
 
             // Building modules are in metres, the scale brings them to Unity units so the box size is passed in metres.
-            float meterScale = _geometryContext.GetMeterScale();
+            float meterScale = geometryConfig.GetMeterScale();
             // Own generator, the drawers reseed UnityEngine.Random on every rebuild.
             var random = new System.Random(_seed);
             int minFloors = Mathf.Max(1, Mathf.Min(_floorRange.x, _floorRange.y));

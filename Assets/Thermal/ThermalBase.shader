@@ -33,6 +33,12 @@ Shader "Thermal/Base"
 
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            // Instanced draws (ProceduralBuildingDrawer's modules) keep their per-instance matrices under the
+            // override. Nothing thermal is per instance: the property block's values hold for the whole draw.
+            #pragma multi_compile_instancing
+
+            // Ahead of the structs, for the instancing macros. ThermalCommon includes it again, guarded.
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             struct Attributes
             {
@@ -40,6 +46,7 @@ Shader "Thermal/Base"
                 float3 normalOS : NORMAL;
                 float4 tangentOS : TANGENT;     // for the normal map; all zero on a mesh without tangents
                 float2 uv : TEXCOORD0;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -69,6 +76,7 @@ Shader "Thermal/Base"
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
+                UNITY_SETUP_INSTANCE_ID(IN);
                 OUT.positionCS = TransformObjectToHClip(IN.positionOS.xyz);
                 OUT.normalWS = TransformObjectToWorldNormal(IN.normalOS);
                 OUT.positionWS = TransformObjectToWorld(IN.positionOS.xyz);
@@ -145,6 +153,7 @@ Shader "Thermal/Base"
             HLSLPROGRAM
             #pragma vertex ShadowVert
             #pragma fragment ShadowFrag
+            #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
@@ -156,6 +165,7 @@ Shader "Thermal/Base"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct ShadowVaryings
@@ -166,6 +176,7 @@ Shader "Thermal/Base"
             ShadowVaryings ShadowVert(ShadowAttributes IN)
             {
                 ShadowVaryings OUT;
+                UNITY_SETUP_INSTANCE_ID(IN);
 
                 float3 positionWS = TransformObjectToWorld(IN.positionOS.xyz);
                 float3 normalWS = TransformObjectToWorldNormal(IN.normalOS);

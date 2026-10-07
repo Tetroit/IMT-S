@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 3471142190069166716}
   - component: {fileID: 758341972765255956}
   - component: {fileID: 5350487678916743164}
+  - component: {fileID: 3734976182253108042}
   m_Layer: 0
   m_Name: TerrainTile
   m_TagString: Untagged
@@ -90,3 +91,16 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &3734976182253108042
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 407617576872590334}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44e3f1c0c1f54b17b0e418b5665692b6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::IMT.Thermal.ThermalObject
+  material: {fileID: 11400000, guid: 0fdacb1397a812941a98b5426d9ef0b7, type: 2}
