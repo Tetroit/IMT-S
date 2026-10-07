@@ -420,7 +420,7 @@ MonoBehaviour:
   buildingAsset: {fileID: 11400000, guid: 2b1ed1ceffeb850418f97a7430f482a0, type: 2}
   populateInstances: 0
   roofType: 0
-  debugRoofType: 1
+  debugRoofType: 2
   overrideRoofForDebug: 1
   rawPoints:
   - {x: -5.605916, y: 0.000000520562, z: 2.28333}
