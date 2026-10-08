@@ -8,12 +8,15 @@ namespace IMT.Thermal
     {
         [SerializeField, Range(0, 1)] public float m_Emissivity = 0.98f;
         [SerializeField, Range(0, 1)] public float m_SolarAbsorptivity = 0.9f;
+        [Tooltip("Where the two values come from: dataset, handbook table or measurement.")]
+        [SerializeField, TextArea(1, 4)] public string m_Source;
 
         // D-010's MVP: the values painted per texel. Either map is optional; without one, the values above
         // hold for the whole object, exactly as before.
         [Header("Maps (optional)")]
         [Tooltip("R = solar absorptivity, G = emissivity (8-14 um), both linear 0-1. Where set, replaces the two " +
-                 "values above. Import with sRGB off and compression None (or BC5); mipmaps on.")]
+                 "values above. Name the texture *_Thermal and its import settings are locked to linear, " +
+                 "uncompressed and box-filtered mips; otherwise set those by hand.")]
         [SerializeField] public Texture2D m_PropertyMap;
         [Tooltip("Tangent-space normal map, imported as Normal map. Bends the normal the balance and the sky see; " +
                  "shadows stay with the geometry. The mesh needs tangents.")]
@@ -37,9 +40,46 @@ namespace IMT.Thermal
         public static readonly int k_NormalMipBias = Shader.PropertyToID("_ThermalNormalMipBias");
         public static readonly int k_MapST = Shader.PropertyToID("_ThermalMapST");
 
+        [NonSerialized] MaterialPropertyBlock m_Block;
+
+        /// <summary>
+        /// This material in a block of its own, for draws that have no renderer to hold one: instanced draws
+        /// such as the house tool's modules. One block per material, shared by every draw of it, so a frame of
+        /// thousands of draws builds none. Rebuilt when the asset changes in the editor.
+        /// </summary>
+        public MaterialPropertyBlock PropertyBlock
+        {
+            get
+            {
+                if (m_Block == null)
+                {
+                    m_Block = new MaterialPropertyBlock();
+                    WriteTo(m_Block);
+                }
+                return m_Block;
+            }
+        }
+
+        /// <summary>Everything the thermal shader reads from a material, into <paramref name="block"/>.</summary>
+        public void WriteTo(MaterialPropertyBlock block)
+        {
+            block.SetFloat(k_Emissivity, m_Emissivity);
+            block.SetFloat(k_SolarAbsorptivity, m_SolarAbsorptivity);
+
+            // Maps: a missing one is switched off, not faked - the shader skips it, so an object without
+            // maps renders exactly as before. The stand-in textures only keep the slots bound.
+            bool properties = m_PropertyMap != null, normals = m_NormalMap != null;
+            block.SetTexture(k_PropertyMap, properties ? m_PropertyMap : Texture2D.whiteTexture);
+            block.SetFloat(k_PropertyMapOn, properties ? 1f : 0f);
+            block.SetTexture(k_NormalMap, normals ? m_NormalMap : Texture2D.normalTexture);
+            block.SetFloat(k_NormalStrength, normals ? m_NormalStrength : 0f);
+            block.SetFloat(k_NormalMipBias, m_NormalMipBias);
+            block.SetVector(k_MapST, new Vector4(m_Tiling.x, m_Tiling.y, m_Offset.x, m_Offset.y));
+        }
 
         private void OnValidate()
         {
+            m_Block = null;
 #if UNITY_EDITOR
             foreach (var o in FindObjectsByType<ThermalObject>())
                 if (o.material == this)

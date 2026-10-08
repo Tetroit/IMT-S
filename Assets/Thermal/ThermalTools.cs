@@ -512,6 +512,43 @@ namespace IMT.Thermal
                 panel.transform.position, mesh.normals[0], mesh.tangents[0], mesh.uv[0], mesh.uv[1]));
         }
 
+        // The house tool's path - Graphics.DrawMeshInstanced with the thermal material in a property block -
+        // against the renderer path D-010 verified. A map test panel, plus ThermalInstancingTest drawing four
+        // instanced panels in a row with it: two copies of the map material beside it, which must reproduce its
+        // twelve cells, and two of a uniform material (absorptivity and emissivity 0.5) at the ends, the eastern
+        // one turned 30 degrees.
+        [MenuItem("Thermal/Create Instancing Test")]
+        public static void CreateInstancingTest()
+        {
+            CreateMapTestPanel();
+            GameObject panel = Selection.activeGameObject;
+
+            const string uniformPath = "Assets/Thermal/MapTest/InstancingTest_Uniform.asset";
+            var uniform = AssetDatabase.LoadAssetAtPath<ThermalMaterial>(uniformPath);
+            if (uniform == null)
+            {
+                uniform = ScriptableObject.CreateInstance<ThermalMaterial>();
+                AssetDatabase.CreateAsset(uniform, uniformPath);
+            }
+            uniform.m_SolarAbsorptivity = 0.5f;
+            uniform.m_Emissivity = 0.5f;
+            uniform.m_PropertyMap = null;
+            uniform.m_NormalMap = null;
+            EditorUtility.SetDirty(uniform);
+            AssetDatabase.SaveAssets();
+
+            panel.name = "Thermal Instancing Test";
+            var test = panel.AddComponent<ThermalInstancingTest>();
+            test.mapped = panel.GetComponent<ThermalObject>().material;
+            test.uniform = uniform;
+
+            Debug.Log("[Instancing] a row of five 2 m panels, 2.5 m apart, west to east: uniform, instanced map copy, " +
+                      "this panel's own renderer, instanced map copy, uniform turned 30 degrees. Frame all five in the " +
+                      "thermal camera (about 15 m south of the row), clear Site Profile, set Start Utc to " +
+                      "2026-06-21T11:42:00Z. Capture once with Enable GPU Instancing unticked on Assets/Thermal/" +
+                      "New Material.mat (the thermal override) - expected to fail - then once with it ticked.");
+        }
+
         static void WritePng(string path, Color32[] pixels, int size)
         {
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
