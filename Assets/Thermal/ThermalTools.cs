@@ -549,6 +549,165 @@ namespace IMT.Thermal
                       "New Material.mat (the thermal override) - expected to fail - then once with it ticked.");
         }
 
+        // Maps at a distance (Next, item 4): does a surface's mean radiance hold as coarser mips take over? Two 64 x 64
+        // maps in rows 8 texels tall, which from mip level 4 on average into one value: a normal map tilting the rows
+        // 20 degrees down and up in turn (G 84 and 172, mean 128, the flat encoding) and a property map alternating
+        // bare zinc (140, 51) with light paint (64, 235), mean (102, 143). Three materials wearing them, and a
+        // ThermalDistanceTest ladder 17 m in front of the thermal camera. Captures/distance_test.py has the predictions.
+        [MenuItem("Thermal/Create Distance Test")]
+        public static void CreateDistanceTest()
+        {
+            const string folder = "Assets/Thermal/MapTest";
+            if (!AssetDatabase.IsValidFolder(folder))
+                AssetDatabase.CreateFolder("Assets/Thermal", "MapTest");
+
+            const int size = 64, row = 8;
+            var normals = new Color32[size * size];
+            var props = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                bool second = y / row % 2 == 1;
+                byte g = second ? (byte)172 : (byte)84;
+                double ny = g / 255.0 * 2 - 1;
+                byte b = (byte)Math.Round((Math.Sqrt(1 - ny * ny) + 1) / 2 * 255);
+                for (int x = 0; x < size; x++)
+                {
+                    normals[y * size + x] = new Color32(128, g, b, 255);
+                    props[y * size + x] = second ? new Color32(64, 235, 0, 255) : new Color32(140, 51, 0, 255);
+                }
+            }
+            string reliefPath = folder + "/DistanceTest_Relief.png", mixPath = folder + "/DistanceTest_Mix_Thermal.png";
+            WritePng(reliefPath, normals, size);
+            WritePng(mixPath, props, size);         // a *_Thermal map: ThermalPropertyMapImporter locks its import
+
+            // Trilinear and box-filtered like the property map; Unity's default, bilinear, would switch mip levels
+            // in steps rather than blend them. Repeat, since the rungs tile.
+            var ni = (TextureImporter)AssetImporter.GetAtPath(reliefPath);
+            ni.textureType = TextureImporterType.NormalMap;
+            ni.textureCompression = TextureImporterCompression.Uncompressed;
+            ni.mipmapEnabled = true;
+            ni.mipmapFilter = TextureImporterMipFilter.BoxFilter;
+            ni.wrapMode = TextureWrapMode.Repeat;
+            ni.filterMode = FilterMode.Trilinear;
+            ni.SaveAndReimport();
+
+            ThermalMaterial Fixture(string name)
+            {
+                string path = folder + "/" + name + ".asset";
+                var material = AssetDatabase.LoadAssetAtPath<ThermalMaterial>(path);
+                if (material == null)
+                {
+                    material = ScriptableObject.CreateInstance<ThermalMaterial>();
+                    AssetDatabase.CreateAsset(material, path);
+                }
+                material.m_PropertyMap = null;
+                material.m_NormalMap = null;
+                material.m_NormalStrength = 1f;
+                material.m_NormalMipBias = 0f;
+                material.m_Tiling = Vector2.one;
+                material.m_Offset = Vector2.zero;
+                return material;
+            }
+            ThermalMaterial relief = Fixture("DistanceTest_Relief"), mix = Fixture("DistanceTest_Mix"),
+                            averaged = Fixture("DistanceTest_Averaged");
+            relief.m_SolarAbsorptivity = 230 / 255f;    // the map test's darkest column
+            relief.m_Emissivity = 250 / 255f;
+            relief.m_NormalMap = AssetDatabase.LoadAssetAtPath<Texture2D>(reliefPath);
+            mix.m_PropertyMap = AssetDatabase.LoadAssetAtPath<Texture2D>(mixPath);
+            averaged.m_SolarAbsorptivity = 102 / 255f;  // the mix's two paints averaged, as its mips average them
+            averaged.m_Emissivity = 143 / 255f;
+            foreach (var material in new[] { relief, mix, averaged })
+                EditorUtility.SetDirty(material);
+            AssetDatabase.SaveAssets();
+
+            // The ladder 17 m north of the thermal camera, facing it. Head-on matters: the predictions are for a
+            // south-facing test, and a plane square to the view has one scale, so every rung one mip level.
+            const float distance = 17f;
+            var capture = UnityEngine.Object.FindAnyObjectByType<ThermalCapture>();
+            Camera camera = capture != null ? capture.GetComponent<Camera>() : null;
+            var warnings = new List<string>();
+            Vector2 backdrop = ThermalDistanceTest.BackdropSize(8);
+            var panel = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            panel.name = "Thermal Distance Test";
+            UnityEngine.Object.DestroyImmediate(panel.GetComponent<Collider>());
+            panel.transform.localScale = new Vector3(backdrop.x, backdrop.y, 1f);
+            if (camera != null)
+                panel.transform.position = camera.transform.position + Vector3.forward * distance;
+            else
+            {
+                SceneView view = SceneView.lastActiveSceneView;
+                panel.transform.position = view != null ? view.pivot : Vector3.zero;
+                warnings.Add("no Thermal Capture in the scene, so the test is at the Scene view's pivot: put the thermal " +
+                             "camera 17 m south of it, at its height");
+            }
+            var test = panel.AddComponent<ThermalDistanceTest>();
+            test.relief = relief;
+            test.mix = mix;
+            test.averaged = averaged;
+            Undo.RegisterCreatedObjectUndo(panel, "Create Distance Test");
+            Selection.activeGameObject = panel;
+
+            string scale = "";
+            if (camera != null)
+            {
+                if (Quaternion.Angle(camera.transform.rotation, Quaternion.identity) > 0.01f)
+                    warnings.Add("the thermal camera is turned: set its rotation to 0, 0, 0 so it sees the test head-on");
+
+                // Anything between the camera and the test: the pyramid from the eye to the backdrop's corners.
+                Vector3 eye = camera.transform.position, centre = panel.transform.position;
+                float hx = backdrop.x / 2, hy = backdrop.y / 2;
+                Vector3[] corners =
+                {
+                    centre + new Vector3(-hx, -hy, 0), centre + new Vector3(hx, -hy, 0),
+                    centre + new Vector3(hx, hy, 0), centre + new Vector3(-hx, hy, 0),
+                };
+                Vector3 inside = Vector3.Lerp(eye, centre, 0.5f);
+                var planes = new Plane[6];
+                for (int i = 0; i < 4; i++)
+                {
+                    planes[i] = new Plane(eye, corners[i], corners[(i + 1) % 4]);
+                    if (!planes[i].GetSide(inside))
+                        planes[i].Flip();
+                }
+                planes[4] = new Plane(Vector3.forward, eye);
+                planes[5] = new Plane(Vector3.back, centre - Vector3.forward * 0.05f);
+                var blocking = new List<string>();
+                foreach (var r in UnityEngine.Object.FindObjectsByType<Renderer>())
+                    if (r.gameObject != panel && r.enabled && r.gameObject.activeInHierarchy &&
+                        GeometryUtility.TestPlanesAABB(planes, r.bounds))
+                        blocking.Add(r.name);
+                if (blocking.Count > 0)
+                    warnings.Add("in the way, disable for the capture: " + string.Join(", ", blocking));
+
+                var settings = new SerializedObject(capture);
+                int height = settings.FindProperty("m_Height").intValue;
+                double pxPerMetre = height / 2.0 / Math.Tan(camera.fieldOfView * Math.PI / 360) /
+                                    (distance - ThermalDistanceTest.k_Standoff);
+                scale = string.Format(CultureInfo.InvariantCulture, "; with this camera, level {0:F2} + k",
+                                      Math.Log(64 / pxPerMetre, 2));
+            }
+
+            var environment = UnityEngine.Object.FindAnyObjectByType<ThermalEnvironment>();
+            if (environment != null)
+            {
+                var settings = new SerializedObject(environment);
+                if (settings.FindProperty("m_SiteProfile").objectReferenceValue != null)
+                    warnings.Add("clear Site Profile on ThermalEnvironment");
+                if (settings.FindProperty("m_StartUtc").stringValue != "2026-06-21T11:42:00Z")
+                    warnings.Add("set Start Utc to 2026-06-21T11:42:00Z");
+                if (settings.FindProperty("m_UseWallClock").boolValue || !settings.FindProperty("m_Paused").boolValue)
+                    warnings.Add("pause the clock (Paused on, Use Wall Clock off)");
+            }
+
+            Debug.Log("[Distance] a 12 x 3.25 m backdrop with no thermal material and two rows of eight 1 m rungs, tiled " +
+                      "1x to 128x: a normal-mapped relief above, bare metal and paint mixed below, and at the end of that " +
+                      "row a control painted with the mix's average. Rung k samples the mip level a panel tiled once " +
+                      "would at 2^k times the distance" + scale + ". Capture one frame at 2560 x 2048 in Play mode and " +
+                      "run Captures/distance_test.py on it.");
+            foreach (string warning in warnings)
+                Debug.LogWarning("[Distance] " + warning);
+        }
+
         static void WritePng(string path, Color32[] pixels, int size)
         {
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
