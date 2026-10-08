@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace IMT.Thermal
@@ -18,8 +19,9 @@ namespace IMT.Thermal
                  "values above. Name the texture *_Thermal and its import settings are locked to linear, " +
                  "uncompressed and box-filtered mips; otherwise set those by hand.")]
         [SerializeField] public Texture2D m_PropertyMap;
-        [Tooltip("Tangent-space normal map, imported as Normal map. Bends the normal the balance and the sky see; " +
-                 "shadows stay with the geometry. The mesh needs tangents.")]
+        [Tooltip("Tangent-space normal map, imported as Normal map with Filter Mode Trilinear - bilinear switches " +
+                 "mip levels in steps as the camera moves. Bends the normal the balance and the sky see; shadows " +
+                 "stay with the geometry. The mesh needs tangents.")]
         [SerializeField] public Texture2D m_NormalMap;
         [Tooltip("0 = the geometry's own normal, 1 = the map as painted.")]
         [SerializeField, Range(0, 1)] public float m_NormalStrength = 1f;
@@ -84,7 +86,47 @@ namespace IMT.Thermal
             foreach (var o in FindObjectsByType<ThermalObject>())
                 if (o.material == this)
                     o.Push();
+            // Once the load or edit has settled: while an asset loads, its maps may not be imported yet.
+            UnityEditor.EditorApplication.delayCall += WarnAboutMaps;
 #endif
         }
+
+#if UNITY_EDITOR
+        static readonly HashSet<string> s_Warned = new HashSet<string>();
+
+        /// <summary>
+        /// What would make a map's values step or shimmer as the camera moves, or null. Unity's default filter,
+        /// bilinear, switches mip levels in steps - level-of-detail jumping, the client's first priority (D-010, maps
+        /// at a distance). A map without mipmaps aliases instead.
+        /// </summary>
+        public static string DistanceProblem(Texture map)
+        {
+            if (map == null)
+                return null;
+            if (map.mipmapCount <= 1)
+                return "has no mipmaps, so it shimmers at a distance: tick Generate Mipmaps";
+            if (map.filterMode != FilterMode.Trilinear)
+                return $"is filtered {map.filterMode}, so its mip levels switch in steps as the camera moves: " +
+                       "set Filter Mode to Trilinear";
+            return null;
+        }
+
+        void WarnAboutMaps()
+        {
+            if (this == null)       // deleted before the call came
+                return;
+            Warn(m_PropertyMap, "property map");
+            Warn(m_NormalMap, "normal map");
+        }
+
+        // Once per map and problem in a session, however often the material is validated.
+        void Warn(Texture map, string what)
+        {
+            string problem = DistanceProblem(map);
+            if (problem == null || !s_Warned.Add($"{GetEntityId()} {map.GetEntityId()} {problem}"))
+                return;
+            Debug.LogWarning($"[Thermal] {name}: the {what} {map.name} {problem}.", this);
+        }
+#endif
     }
 }

@@ -467,13 +467,14 @@ namespace IMT.Thermal
             pi.textureCompression = TextureImporterCompression.Uncompressed;
             pi.mipmapEnabled = true;
             pi.wrapMode = TextureWrapMode.Clamp;
-            pi.filterMode = FilterMode.Bilinear;
+            pi.filterMode = FilterMode.Trilinear;   // bilinear steps between mip levels; the panel is magnified anyway
             pi.SaveAndReimport();
             var ni = (TextureImporter)AssetImporter.GetAtPath(normalsPath);
             ni.textureType = TextureImporterType.NormalMap;
             ni.textureCompression = TextureImporterCompression.Uncompressed;
             ni.mipmapEnabled = true;
             ni.wrapMode = TextureWrapMode.Clamp;
+            ni.filterMode = FilterMode.Trilinear;
             ni.SaveAndReimport();
 
             string materialPath = folder + "/MapTest.asset";
