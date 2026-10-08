@@ -20,7 +20,7 @@ namespace IMT.Thermal
     class ThermalPropertyMapImporter : AssetPostprocessor
     {
         /// <summary>Raise when the settings change, to reimport every thermal map.</summary>
-        const uint k_Version = 1;
+        const uint k_Version = 2;
 
         /// <summary>Thermal → Property Map Check turns this off to see the check fail on wrong settings.</summary>
         internal static bool s_Enabled = true;
@@ -39,7 +39,7 @@ namespace IMT.Thermal
             importer.textureType = TextureImporterType.Default;
             importer.textureShape = TextureImporterShape.Texture2D;
             importer.sRGBTexture = false;
-            importer.alphaSource = TextureImporterAlphaSource.None;
+            importer.alphaSource = TextureImporterAlphaSource.FromInput;
             importer.npotScale = TextureImporterNPOTScale.None;
             importer.maxTextureSize = 16384;
             importer.mipmapEnabled = true;
@@ -49,7 +49,16 @@ namespace IMT.Thermal
             importer.textureCompression = TextureImporterCompression.Uncompressed;
             importer.filterMode = FilterMode.Trilinear;
             importer.isReadable = false;
-            importer.ClearPlatformTextureSettings("Standalone");
+            // Four channels even when the export has three: the GPU stores three as four anyway, a three-channel
+            // texture cannot be read back for the check, and alpha stays free for a later property.
+            importer.SetPlatformTextureSettings(new TextureImporterPlatformSettings
+            {
+                name = "Standalone",
+                overridden = true,
+                maxTextureSize = 16384,
+                format = TextureImporterFormat.RGBA32,
+                textureCompression = TextureImporterCompression.Uncompressed,
+            });
         }
 
         void OnPostprocessTexture(Texture2D texture)

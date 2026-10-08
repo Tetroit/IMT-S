@@ -51,6 +51,7 @@ namespace IMT.Thermal
                 importer.mipmapEnabled = true;
                 importer.mipmapFilter = TextureImporterMipFilter.KaiserFilter;
                 importer.filterMode = FilterMode.Bilinear;
+                importer.ClearPlatformTextureSettings("Standalone");
                 importer.SaveAndReimport();
                 int failed = Check(pixels, out int total, out string first);
                 Debug.Log(failed > 0
@@ -107,6 +108,12 @@ namespace IMT.Thermal
                 {
                     a = Halve(a, w * 2);
                     e = Halve(e, w * 2);
+                }
+                // A compressed or three-channel texture cannot be read back, and asking only makes Unity log an error.
+                if (!SystemInfo.IsFormatSupported(format, GraphicsFormatUsage.ReadPixels))
+                {
+                    Expect(false, $"read back level {m}: {format} cannot be read back");
+                    continue;
                 }
                 var request = AsyncGPUReadback.Request(texture, m, TextureFormat.RGBA32);
                 request.WaitForCompletion();
