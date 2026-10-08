@@ -10,13 +10,13 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1bf667b3b0adf8b47815d24266ced625, type: 3}
-  m_Name: MapTest
+  m_Name: InstancingTest_Uniform
   m_EditorClassIdentifier: Assembly-CSharp::IMT.Thermal.ThermalMaterial
-  m_Emissivity: 0.98
-  m_SolarAbsorptivity: 0.9
+  m_Emissivity: 0.5
+  m_SolarAbsorptivity: 0.5
   m_Source: 
-  m_PropertyMap: {fileID: 2800000, guid: dc8840721da6d3b4f94fa4ba1cc7d104, type: 3}
-  m_NormalMap: {fileID: 2800000, guid: 04c90f5bf3e884141b14d461bb68b1de, type: 3}
+  m_PropertyMap: {fileID: 0}
+  m_NormalMap: {fileID: 0}
   m_NormalStrength: 1
   m_NormalMipBias: 0
   m_Tiling: {x: 1, y: 1}
