@@ -709,6 +709,27 @@ namespace IMT.Thermal
                 Debug.LogWarning("[Distance] " + warning);
         }
 
+        // Next, item 10: a static scene whose frames alternate between exact states. Puts a ThermalFlickerProbe on
+        // the thermal camera and says how to run it: untouched first, then a toggle at a time, so the log shows which
+        // change, if any, stops the alternation.
+        [MenuItem("Thermal/Add Flicker Probe")]
+        public static void AddFlickerProbe()
+        {
+            var capture = UnityEngine.Object.FindAnyObjectByType<ThermalCapture>();
+            if (capture == null)
+            {
+                Debug.LogError("[Flicker] no Thermal Capture in the scene");
+                return;
+            }
+            if (capture.GetComponent<ThermalFlickerProbe>() == null)
+                Undo.AddComponent<ThermalFlickerProbe>(capture.gameObject);
+            Selection.activeGameObject = capture.gameObject;
+            Debug.Log("[Flicker] probe on " + capture.name + ". Clock paused, Write Frames can stay off. Press Play and " +
+                      "leave it about 10 s untouched. Then, still playing: the sun light's Shadow Type to No Shadows for " +
+                      "about 10 s, back to Soft Shadows; then hide the Scene view for about 10 s (another tab in front " +
+                      "of it, or maximise the Game view). Stop, and paste every [Flicker] line.");
+        }
+
         static void WritePng(string path, Color32[] pixels, int size)
         {
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
