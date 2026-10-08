@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 
 namespace IMT.Thermal
 {
@@ -19,9 +20,10 @@ namespace IMT.Thermal
                  "values above. Name the texture *_Thermal and its import settings are locked to linear, " +
                  "uncompressed and box-filtered mips; otherwise set those by hand.")]
         [SerializeField] public Texture2D m_PropertyMap;
-        [Tooltip("Tangent-space normal map, imported as Normal map with Filter Mode Trilinear - bilinear switches " +
-                 "mip levels in steps as the camera moves. Bends the normal the balance and the sky see; shadows " +
-                 "stay with the geometry. The mesh needs tangents.")]
+        [Tooltip("Tangent-space normal map, imported as Normal map - the visual material's own. The thermal camera " +
+                 "reads a copy made from it whose mips keep the mean normal's length (ThermalNormalBake), remade " +
+                 "when the map or the strength changes. Bends the normal the balance and the sky see; shadows stay " +
+                 "with the geometry. The mesh needs tangents.")]
         [SerializeField] public Texture2D m_NormalMap;
         [Tooltip("0 = the geometry's own normal, 1 = the map as painted.")]
         [SerializeField, Range(0, 1)] public float m_NormalStrength = 1f;
@@ -44,6 +46,13 @@ namespace IMT.Thermal
 
         [NonSerialized] MaterialPropertyBlock m_Block;
 
+        // The baked normals and what they were baked from.
+        [NonSerialized] RenderTexture m_Baked;
+        [NonSerialized] Texture2D m_BakedMap;
+        [NonSerialized] float m_BakedStrength;
+        [NonSerialized] Hash128 m_BakedContents;
+        [NonSerialized] Vector2Int m_BakedSize;
+
         /// <summary>
         /// This material in a block of its own, for draws that have no renderer to hold one: instanced draws
         /// such as the house tool's modules. One block per material, shared by every draw of it, so a frame of
@@ -62,6 +71,42 @@ namespace IMT.Thermal
             }
         }
 
+        /// <summary>
+        /// The normal map as the thermal shader reads it: ThermalNormalBake's copy, whose mips keep the mean normal's
+        /// length. Made on first use and again when the map, its import or the strength changes, or the GPU lost it;
+        /// null without a map, at strength 0, or where the copy cannot be made.
+        /// </summary>
+        public RenderTexture ThermalNormals
+        {
+            get
+            {
+                if (m_NormalMap == null || m_NormalStrength <= 0f)
+                    return null;
+                Hash128 contents = ContentsOf(m_NormalMap);
+                var size = new Vector2Int(m_NormalMap.width, m_NormalMap.height);
+                if (m_Baked == null || !m_Baked.IsCreated() || m_BakedMap != m_NormalMap ||
+                    m_BakedStrength != m_NormalStrength || m_BakedContents != contents || m_BakedSize != size)
+                {
+                    ThermalNormalBake.Release(m_Baked);
+                    m_Baked = ThermalNormalBake.Bake(m_NormalMap, m_NormalStrength);
+                    m_BakedMap = m_NormalMap;
+                    m_BakedStrength = m_NormalStrength;
+                    m_BakedContents = contents;
+                    m_BakedSize = size;
+                }
+                return m_Baked;
+            }
+        }
+
+        static Hash128 ContentsOf(Texture map)
+        {
+#if UNITY_EDITOR
+            return map.imageContentsHash;       // changes when the map is reimported
+#else
+            return default;
+#endif
+        }
+
         /// <summary>Everything the thermal shader reads from a material, into <paramref name="block"/>.</summary>
         public void WriteTo(MaterialPropertyBlock block)
         {
@@ -70,24 +115,29 @@ namespace IMT.Thermal
 
             // Maps: a missing one is switched off, not faked - the shader skips it, so an object without
             // maps renders exactly as before. The stand-in textures only keep the slots bound.
-            bool properties = m_PropertyMap != null, normals = m_NormalMap != null;
+            bool properties = m_PropertyMap != null;
+            RenderTexture normals = ThermalNormals;
             block.SetTexture(k_PropertyMap, properties ? m_PropertyMap : Texture2D.whiteTexture);
             block.SetFloat(k_PropertyMapOn, properties ? 1f : 0f);
-            block.SetTexture(k_NormalMap, normals ? m_NormalMap : Texture2D.normalTexture);
-            block.SetFloat(k_NormalStrength, normals ? m_NormalStrength : 0f);
+            // The baked copy, its strength built in: the shader's strength only switches it on.
+            block.SetTexture(k_NormalMap, normals != null ? normals : (Texture)Texture2D.normalTexture);
+            block.SetFloat(k_NormalStrength, normals != null ? 1f : 0f);
             block.SetFloat(k_NormalMipBias, m_NormalMipBias);
             block.SetVector(k_MapST, new Vector4(m_Tiling.x, m_Tiling.y, m_Offset.x, m_Offset.y));
+        }
+
+        void OnDisable()
+        {
+            ThermalNormalBake.Release(m_Baked);
+            m_Baked = null;
         }
 
         private void OnValidate()
         {
             m_Block = null;
 #if UNITY_EDITOR
-            foreach (var o in FindObjectsByType<ThermalObject>())
-                if (o.material == this)
-                    o.Push();
-            // Once the load or edit has settled: while an asset loads, its maps may not be imported yet.
-            UnityEditor.EditorApplication.delayCall += WarnAboutMaps;
+            // Once the edit has settled: a push can bake, and OnValidate is no place to render or destroy.
+            UnityEditor.EditorApplication.delayCall += Refresh;
 #endif
         }
 
@@ -95,9 +145,27 @@ namespace IMT.Thermal
         static readonly HashSet<string> s_Warned = new HashSet<string>();
 
         /// <summary>
+        /// Every renderer and draw using this material picks up its current state, the baked normals included -
+        /// after an edit, and when its normal map is reimported (ThermalNormalBakeRefresh).
+        /// </summary>
+        public void Refresh()
+        {
+            if (this == null)       // deleted before the call came
+                return;
+            m_Block = null;
+            foreach (var o in FindObjectsByType<ThermalObject>())
+                if (o.material == this)
+                    o.Push();
+            Warn(m_PropertyMap, "property map", DistanceProblem(m_PropertyMap));
+            Warn(m_NormalMap, "normal map", m_NormalMap != null && GraphicsFormatUtility.IsSRGBFormat(m_NormalMap.graphicsFormat)
+                ? "is imported as colour, so its values arrive gamma-encoded: set Texture Type to Normal map" : null);
+        }
+
+        /// <summary>
         /// What would make a map's values step or shimmer as the camera moves, or null. Unity's default filter,
         /// bilinear, switches mip levels in steps - level-of-detail jumping, the client's first priority (D-010, maps
-        /// at a distance). A map without mipmaps aliases instead.
+        /// at a distance). A map without mipmaps aliases instead. The normal map is exempt: its baked copy is
+        /// trilinear with its own mips, whatever the map's settings.
         /// </summary>
         public static string DistanceProblem(Texture map)
         {
@@ -111,18 +179,9 @@ namespace IMT.Thermal
             return null;
         }
 
-        void WarnAboutMaps()
-        {
-            if (this == null)       // deleted before the call came
-                return;
-            Warn(m_PropertyMap, "property map");
-            Warn(m_NormalMap, "normal map");
-        }
-
         // Once per map and problem in a session, however often the material is validated.
-        void Warn(Texture map, string what)
+        void Warn(Texture map, string what, string problem)
         {
-            string problem = DistanceProblem(map);
             if (problem == null || !s_Warned.Add($"{GetEntityId()} {map.GetEntityId()} {problem}"))
                 return;
             Debug.LogWarning($"[Thermal] {name}: the {what} {map.name} {problem}.", this);

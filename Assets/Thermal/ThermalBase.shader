@@ -10,8 +10,9 @@ Shader "Thermal/Base"
         // renders exactly as before.
         [NoScaleOffset] _ThermalPropertyMap ("Property Map (R absorptivity, G emissivity, linear)", 2D) = "white" {}
         _ThermalPropertyMapOn ("Use Property Map", Float) = 0
-        [NoScaleOffset][Normal] _ThermalNormalMap ("Normal Map", 2D) = "bump" {}
-        _ThermalNormalStrength ("Normal Strength (0 = off)", Range(0,1)) = 0
+        // The thermal copy of a normal map (ThermalNormalBake): xyz as (n + 1) / 2, mips plain averages.
+        [NoScaleOffset] _ThermalNormalMap ("Normal Map (thermal copy)", 2D) = "bump" {}
+        _ThermalNormalStrength ("Normal Map On (its strength is baked in)", Range(0,1)) = 0
         _ThermalNormalMipBias ("Normal Mip Bias", Float) = 0
         _ThermalMapST ("Map Tiling (xy) and Offset (zw)", Vector) = (1, 1, 0, 0)
     }
@@ -93,12 +94,16 @@ Shader "Thermal/Base"
                 float3 T = IN.tangentWS.xyz - N * dot(N, IN.tangentWS.xyz);    // Gram-Schmidt onto the surface
                 if (_ThermalNormalStrength > 0 && dot(T, T) > 1e-12)
                 {
-                    float4 packedNormal = SAMPLE_TEXTURE2D_BIAS(_ThermalNormalMap, sampler_ThermalNormalMap,
-                                                                IN.uv, _ThermalNormalMipBias);
-                    float3 nTS = UnpackNormalScale(packedNormal, _ThermalNormalStrength);
+                    // ThermalMaterial's baked copy: its texels the unit normals URP's UnpackNormalScale gave, the
+                    // strength applied; its mips their plain averages, shorter than 1 where the normals covered
+                    // disagree. Kept that way - no z rebuilt, no normalise: the sun on the mean normal is the mean
+                    // sun on the normals, so a relief's radiance holds as coarser mips take over (D-010, maps at a
+                    // distance). The sky view factor and the sky's diffuse factor take the same mean normal.
+                    float3 nTS = SAMPLE_TEXTURE2D_BIAS(_ThermalNormalMap, sampler_ThermalNormalMap,
+                                                       IN.uv, _ThermalNormalMipBias).xyz * 2 - 1;
                     T = normalize(T);
                     float3 B = cross(N, T) * IN.tangentWS.w;
-                    N = normalize(nTS.x * T + nTS.y * B + nTS.z * N);
+                    N = nTS.x * T + nTS.y * B + nTS.z * N;
                 }
 
                 float emissivity = _Emissivity;

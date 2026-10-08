@@ -1,0 +1,43 @@
+// ThermalNormalBake's two passes (D-010, maps at a distance). Decode: each texel of a normal map as the unit normal
+// URP's UnpackNormalScale gives, normalised - what Thermal/Base took from the map before the bake. Halve: each texel
+// the plain mean of the texels above it, NOT renormalised, so a coarse level keeps the mean normal's length. Each
+// writes its level twice: in float for the next Halve, and as (n + 1) / 2 into the baked copy's own mip.
+
+#pragma kernel Decode
+#pragma kernel Halve
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
+
+Texture2D<float4> _Source;      // Decode: the normal map. Halve: the level above, in float
+RWTexture2D<float4> _Mean;      // this level, in float
+RWTexture2D<float4> _Baked;     // this level of the baked copy
+uint2 _Size;                    // this level's size
+uint2 _SourceSize;              // the level above's size (Halve)
+float _Strength;
+
+[numthreads(8, 8, 1)]
+void Decode(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Size))
+        return;
+    float3 n = normalize(UnpackNormalScale(_Source.Load(int3(id.xy, 0)), _Strength));
+    _Mean[id.xy] = float4(n, 1);
+    _Baked[id.xy] = float4(n * 0.5 + 0.5, 1);
+}
+
+[numthreads(8, 8, 1)]
+void Halve(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Size))
+        return;
+    // The texels above this one: 2 x 2, or 3 across the edge of an odd size.
+    uint2 lo = id.xy * _SourceSize / _Size, hi = (id.xy + 1) * _SourceSize / _Size;
+    float3 sum = 0;
+    for (uint y = lo.y; y < hi.y; y++)
+        for (uint x = lo.x; x < hi.x; x++)
+            sum += _Source.Load(int3(x, y, 0)).xyz;
+    float3 n = sum / ((hi.x - lo.x) * (hi.y - lo.y));
+    _Mean[id.xy] = float4(n, 1);
+    _Baked[id.xy] = float4(n * 0.5 + 0.5, 1);
+}

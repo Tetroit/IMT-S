@@ -10,8 +10,15 @@ namespace IMT.Thermal
         private MaterialPropertyBlock m_Block;
         private Renderer m_Renderer;
         
-        void OnValidate() { Push(); }
         void OnEnable()     { Push(); }
+
+        void OnValidate()
+        {
+#if UNITY_EDITOR
+            // Once the edit has settled: a push can bake a normal map, and OnValidate is no place to render or destroy.
+            UnityEditor.EditorApplication.delayCall += () => { if (this != null) Push(); };
+#endif
+        }
 
         public void Push()
         {
