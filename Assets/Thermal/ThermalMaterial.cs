@@ -14,8 +14,9 @@ namespace IMT.Thermal
         [SerializeField, TextArea(1, 4)] public string m_Source;
 
         // D-010's MVP: the values painted per texel. Either map is optional; without one, the values above
-        // hold for the whole object, exactly as before.
-        [Header("Maps (optional)")]
+        // hold for the whole object, exactly as before. A trim sheet is one material: the sheet's *_Thermal map,
+        // its normal map if it has one, tiling 1 and offset 0 - the modules' own UVs address the strips.
+        [Header("Maps (optional) - for a trim sheet, the sheet's")]
         [Tooltip("R = solar absorptivity, G = emissivity (8-14 um), both linear 0-1. Where set, replaces the two " +
                  "values above. Name the texture *_Thermal and its import settings are locked to linear, " +
                  "uncompressed and box-filtered mips; otherwise set those by hand.")]
@@ -156,7 +157,7 @@ namespace IMT.Thermal
             foreach (var o in FindObjectsByType<ThermalObject>())
                 if (o.material == this)
                     o.Push();
-            Warn(m_PropertyMap, "property map", DistanceProblem(m_PropertyMap));
+            Warn(m_PropertyMap, "property map", ValueProblem(m_PropertyMap) ?? DistanceProblem(m_PropertyMap));
             Warn(m_NormalMap, "normal map", m_NormalMap != null && GraphicsFormatUtility.IsSRGBFormat(m_NormalMap.graphicsFormat)
                 ? "is imported as colour, so its values arrive gamma-encoded: set Texture Type to Normal map" : null);
         }
@@ -176,6 +177,23 @@ namespace IMT.Thermal
             if (map.filterMode != FilterMode.Trilinear)
                 return $"is filtered {map.filterMode}, so its mip levels switch in steps as the camera moves: " +
                        "set Filter Mode to Trilinear";
+            return null;
+        }
+
+        /// <summary>
+        /// What would corrupt the painted values themselves, or null: sRGB decoding or compression. A map named
+        /// *_Thermal cannot have either (ThermalPropertyMapImporter locks it); one named otherwise gets Unity's
+        /// defaults, which have both, and nothing would look wrong.
+        /// </summary>
+        public static string ValueProblem(Texture map)
+        {
+            if (map == null)
+                return null;
+            GraphicsFormat format = map.graphicsFormat;
+            if (GraphicsFormatUtility.IsSRGBFormat(format))
+                return $"is decoded as sRGB colour ({format}), which bends every value: name it *_Thermal to lock its import";
+            if (GraphicsFormatUtility.IsCompressedFormat(format))
+                return $"is compressed ({format}), which blurs every value: name it *_Thermal to lock its import";
             return null;
         }
 
