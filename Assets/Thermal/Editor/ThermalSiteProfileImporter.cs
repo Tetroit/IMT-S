@@ -18,7 +18,7 @@ namespace IMT.Thermal
 #pragma warning disable 649   // assigned by JsonUtility
         [Serializable] class Site { public string name, note; public double latitude, longitude, altitude_m; }
         [Serializable] class Source { public string dataset, built; public string[] period; }
-        [Serializable] class Method { public string clear_cycles, dew_point, decision, wind; public double t_max_shift_K, t_min_shift_K; }
+        [Serializable] class Method { public string clear_cycles, dew_point, decision, wind, wind_correction; public double t_max_shift_K, t_min_shift_K; }
         [Serializable] class Row { public int month; public double t_min_K, t_max_K, dew_point_K, a, b, c, linke_turbidity; public double[] wind_m_s; }
         [Serializable] class Document { public Site site; public Source source; public Method method; public Row[] months; }
 #pragma warning restore 649
@@ -121,6 +121,8 @@ namespace IMT.Thermal
                 text += $" ({doc.method.decision}).";
                 text += string.IsNullOrEmpty(doc.method.wind) ? " No wind: the environment's setting drives it."
                                                               : $" Wind: {doc.method.wind}.";
+                if (!string.IsNullOrEmpty(doc.method.wind_correction))
+                    text += $" Wind correction: {doc.method.wind_correction}.";
             }
             if (!string.IsNullOrEmpty(doc.source?.built))
                 text += $" Built {doc.source.built}.";

@@ -20,11 +20,12 @@ namespace IMT.Thermal
     /// temperature moves one way only, and no step larger than the exact answer's own plus 0.008 K. A step there is a
     /// jump in the image whenever the wind changes.</item>
     /// </list>
-    /// The reference's harness ran these criteria against a correct float32 implementation and ten broken ones
+    /// The reference's harness ran these criteria against a correct float32 implementation and eleven broken ones
     /// (pow of a negative dT, a fixed exponent, no still-air term, a sum for the root of squares, a wrong constant,
-    /// a Newton step without dh/dT, 0/0 at equilibrium, one step, h frozen at the seed, dT reversed) and caught every
-    /// one. Two of them only one case catches, so keep these: "zinc roof, calm day" (dh/dT) and "sky at air, calm"
-    /// (0/0). Until ThermalPhysics.hlsl defines THERMAL_PHYSICS_CONVECTION the check reports it as not written yet.
+    /// a Newton step without dh/dT, 0/0 at equilibrium, one step, h frozen at the seed, dT reversed, and - found in
+    /// review on 2026-10-20 - a derivative without h itself) and caught every one. Two of them only one case
+    /// catches, so keep these: "zinc roof, calm day" (dh/dT) and "sky at air, calm" (0/0). Until
+    /// ThermalPhysics.hlsl defines THERMAL_PHYSICS_CONVECTION the check reports it as not written yet.
     /// </summary>
     static class ThermalConvectionCheck
     {

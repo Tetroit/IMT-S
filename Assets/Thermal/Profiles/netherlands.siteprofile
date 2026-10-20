@@ -30,7 +30,8 @@
   "t_min_shift_K": 0.0,
   "dew_point": "capped at the clear day's minimum",
   "decision": "D-016",
-  "wind": "KNMI FH, hourly means placed at mid-hour; every clear-cycle hour, sunrise to sunrise, fitted as 2 seasonal by 4 daily harmonics, read at the 15th at 00-23 UTC (item 6)"
+  "wind": "KNMI FH, hourly means placed at mid-hour; every clear-cycle hour, sunrise to sunrise, fitted as 2 seasonal by 4 daily harmonics, read at the 15th at 00-23 UTC (item 6)",
+  "wind_correction": "none (station observations)"
  },
  "months": [
   {
