@@ -412,12 +412,25 @@ namespace IMT.Thermal
                     stepTl = Math.Max(stepTl, Math.Abs(s.linkeTurbidity - prev.linkeTurbidity));
                     prev = s;
                 }
-                bool ok = anchor < 1e-9 && stepK < 0.05 && stepH < 0.01 && stepTl < 0.01;
+                // Item 6: the wind, if the profile has one - exact on the 15th at every whole hour, and minute by minute
+                // over the same two years never faster than its own table allows.
+                bool windOk = true;
+                string wind = "no wind (the environment's setting drives it)";
+                if (p.HasWind)
+                {
+                    var (windAnchor, windStep, windBound, windAt) = WindContinuity(p);
+                    windOk = windAnchor < 1e-9 && windStep <= windBound;
+                    wind = string.Format(CultureInfo.InvariantCulture,
+                        "wind on the 15th {0:0.0e+0}, largest 1-minute change {1:F5} m/s at {2:yyyy-MM-dd HH:mm} " +
+                        "(the table allows {3:F5})", windAnchor, windStep, windAt, windBound);
+                }
+
+                bool ok = anchor < 1e-9 && stepK < 0.05 && stepH < 0.01 && stepTl < 0.01 && windOk;
                 if (!ok) failed++;
                 string line = string.Format(CultureInfo.InvariantCulture,
                     "{0} ({1})   months on the 15th {2:0.0e+0}   largest hourly change: {3:F4} K at {4:yyyy-MM-dd HH:mm}, " +
-                    "{5:F5} h, turbidity {6:F5}   {7}",
-                    p.DisplayName, path, anchor, stepK, worstAt, stepH, stepTl, ok ? "ok" : "FAIL");
+                    "{5:F5} h, turbidity {6:F5}   {8}   {7}",
+                    p.DisplayName, path, anchor, stepK, worstAt, stepH, stepTl, ok ? "ok" : "FAIL", wind);
                 if (ok) Debug.Log("[Site] " + line);
                 else Debug.LogError("[Site] " + line);
             }
@@ -426,6 +439,61 @@ namespace IMT.Thermal
             else
                 Debug.LogError($"[Site] {failed} of {guids.Length} profiles FAILED");
         }
+
+        // BEGIN WindContinuity - also compiled, verbatim, by IMTNS/wind_profile_harness against broken blends.
+        /// <summary>
+        /// A profile's wind (item 6): on the 15th at each whole hour, the largest difference from the month's own
+        /// value there moved toward the next month's by the time since 00:00 (months blend from the 15th at 00:00,
+        /// as the air does); and, minute by minute over 2027-2028, the largest change, against the most its blending
+        /// can give - the table's steepest hour-to-hour change spread over an hour, plus its steepest month-to-month
+        /// change spread over the shortest month. A wind that jumps anywhere (at midnight, an hour, a month) exceeds
+        /// that bound.
+        /// </summary>
+        static (double anchor, double step, double bound, DateTime at) WindContinuity(ThermalSiteProfile p)
+        {
+            double anchor = 0;
+            for (int m = 1; m <= 12; m++)
+            {
+                var fifteenth = new DateTime(2027, m, 15, 0, 0, 0, DateTimeKind.Utc);
+                double monthSeconds = (fifteenth.AddMonths(1) - fifteenth).TotalSeconds;
+                int n = m % 12 + 1;
+                for (int h = 0; h < 24; h++)
+                {
+                    double w = h * 3600.0 / monthSeconds;
+                    double want = p.GetWind(m, h) + (p.GetWind(n, h) - p.GetWind(m, h)) * w;
+                    double got = p.WindSpeed(fifteenth.AddHours(h));
+                    anchor = Math.Max(anchor, double.IsNaN(got) ? double.PositiveInfinity : Math.Abs(got - want));
+                }
+            }
+
+            double perHour = 0, perMonth = 0;
+            for (int m = 1; m <= 12; m++)
+                for (int h = 0; h < 24; h++)
+                {
+                    perHour = Math.Max(perHour, Math.Abs(p.GetWind(m, (h + 1) % 24) - p.GetWind(m, h)));
+                    perMonth = Math.Max(perMonth, Math.Abs(p.GetWind(m % 12 + 1, h) - p.GetWind(m, h)));
+                }
+            double bound = (perHour + perMonth / (28 * 24.0)) / 60.0 * (1 + 1e-9) + 1e-12;
+
+            var start = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            int minutes = (int)(new DateTime(2029, 1, 1, 0, 0, 0, DateTimeKind.Utc) - start).TotalMinutes;
+            double step = 0, previous = p.WindSpeed(start);
+            DateTime at = start;
+            for (int i = 1; i <= minutes; i++)
+            {
+                DateTime t = start.AddMinutes(i);
+                double v = p.WindSpeed(t);
+                double change = double.IsNaN(v) || v < 0 ? double.PositiveInfinity : Math.Abs(v - previous);
+                if (change > step)
+                {
+                    step = change;
+                    at = t;
+                }
+                previous = v;
+            }
+            return (anchor, step, bound, at);
+        }
+        // END WindContinuity
 
         // D-010's MVP maps against values known to the texel. A property map of four columns - absorptivity
         // 230/255 or 77/255 by emissivity 250/255 or 26/255, exact in 8 bits - and a normal map of three rows,

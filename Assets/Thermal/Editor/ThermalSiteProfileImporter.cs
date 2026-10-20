@@ -11,15 +11,15 @@ namespace IMT.Thermal
     /// Drop the file under Assets and it appears as a profile to pick on ThermalEnvironment. Profiles for
     /// sites that must stay private go in Assets/Thermal/Profiles/Internal, which git ignores.
     /// </summary>
-    [ScriptedImporter(1, "siteprofile")]
+    [ScriptedImporter(2, "siteprofile")]   // 2: the wind (item 6) - every profile reimports
     public class ThermalSiteProfileImporter : ScriptedImporter
     {
         // Mirrors of the builder's JSON, field for field: JsonUtility matches names exactly and skips the rest.
 #pragma warning disable 649   // assigned by JsonUtility
         [Serializable] class Site { public string name, note; public double latitude, longitude, altitude_m; }
         [Serializable] class Source { public string dataset, built; public string[] period; }
-        [Serializable] class Method { public string clear_cycles, dew_point, decision; public double t_max_shift_K, t_min_shift_K; }
-        [Serializable] class Row { public int month; public double t_min_K, t_max_K, dew_point_K, a, b, c, linke_turbidity; }
+        [Serializable] class Method { public string clear_cycles, dew_point, decision, wind; public double t_max_shift_K, t_min_shift_K; }
+        [Serializable] class Row { public int month; public double t_min_K, t_max_K, dew_point_K, a, b, c, linke_turbidity; public double[] wind_m_s; }
         [Serializable] class Document { public Site site; public Source source; public Method method; public Row[] months; }
 #pragma warning restore 649
 
@@ -44,6 +44,7 @@ namespace IMT.Thermal
             }
 
             var months = new ThermalSiteProfile.Month[12];
+            double[] wind = HasWind(doc) ? new double[12 * 24] : null;
             foreach (Row r in doc.months)
             {
                 months[r.month - 1] = new ThermalSiteProfile.Month
@@ -51,14 +52,19 @@ namespace IMT.Thermal
                     minK = r.t_min_K, maxK = r.t_max_K, dewPointK = r.dew_point_K,
                     a = r.a, b = r.b, c = r.c, linkeTurbidity = r.linke_turbidity,
                 };
+                if (wind != null)
+                    Array.Copy(r.wind_m_s, 0, wind, (r.month - 1) * 24, 24);
             }
 
             var profile = ScriptableObject.CreateInstance<ThermalSiteProfile>();
             profile.Set(doc.site.name, doc.site.latitude, doc.site.longitude, (float)doc.site.altitude_m,
-                        Provenance(doc), months);
+                        Provenance(doc), months, wind);
             ctx.AddObjectToAsset("profile", profile);
             ctx.SetMainObject(profile);
         }
+
+        // JsonUtility leaves a missing array empty, not null; both mean no wind.
+        static bool HasWind(Document doc) => doc.months[0].wind_m_s != null && doc.months[0].wind_m_s.Length > 0;
 
         /// <summary>What the sim needs of a profile, or why this one will not do.</summary>
         static string Check(Document doc)
@@ -84,6 +90,17 @@ namespace IMT.Thermal
                 if (!(r.linke_turbidity >= 1.0 && r.linke_turbidity <= 8.0))
                     return $"month {r.month}: Linke turbidity {r.linke_turbidity}";
             }
+            // The wind is optional, but all or nothing: 24 hours in every month, each a plausible clear-day mean.
+            bool wind = HasWind(doc);
+            foreach (Row r in doc.months)
+            {
+                int hours = r.wind_m_s?.Length ?? 0;
+                if (wind ? hours != 24 : hours != 0)
+                    return $"month {r.month}: {hours} hours of wind - a profile has 24 in every month, or none";
+                for (int h = 0; h < hours; h++)
+                    if (!(r.wind_m_s[h] >= 0.0 && r.wind_m_s[h] < 40.0))
+                        return $"month {r.month}, {h:00}:00 UTC: wind {r.wind_m_s[h]} m/s";
+            }
             return null;
         }
 
@@ -102,6 +119,8 @@ namespace IMT.Thermal
                 if (!string.IsNullOrEmpty(doc.method.dew_point))
                     text += $"; dew point {doc.method.dew_point}";
                 text += $" ({doc.method.decision}).";
+                text += string.IsNullOrEmpty(doc.method.wind) ? " No wind: the environment's setting drives it."
+                                                              : $" Wind: {doc.method.wind}.";
             }
             if (!string.IsNullOrEmpty(doc.source?.built))
                 text += $" Built {doc.source.built}.";

@@ -20,7 +20,7 @@ namespace IMT.Thermal
         [Header("Site")]
         [Tooltip("Optional: a site profile from Assets/Thermal/Profiles (built by IMTNS/site_profile.py, D-016). " +
                  "When set, it drives the location and, through the year, the air's minimum, maximum, dew point " +
-                 "and curve, and the Linke turbidity: those settings below are then not used.")]
+                 "and curve, the Linke turbidity and, if it has one, the wind: those settings below are then not used.")]
         [SerializeField] ThermalSiteProfile m_SiteProfile;
 
         [Header("Atmosphere")]
@@ -43,7 +43,8 @@ namespace IMT.Thermal
                  "THERMAL_PHYSICS_CONVECTION; from then on the wind below sets h per surface (item 6).")]
         [SerializeField] float m_ConvectiveCoefficient = 15f;
         [Tooltip("Wind speed, m/s, at 10 m over open terrain, as a weather station or ERA5-Land reports it. With each " +
-                 "material's surface group it sets the convection (item 6). 3 m/s is De Bilt's median over 2011-2025.")]
+                 "material's surface group it sets the convection (item 6). 3 m/s is De Bilt's median over 2011-2025. " +
+                 "A site profile with wind replaces it with the clear day's wind through the day.")]
         [SerializeField, Min(0)] float m_WindSpeed = 3f;
 
         [Header("Sky (D-013)")]
@@ -187,6 +188,8 @@ namespace IMT.Thermal
             public double minK, maxK, dewPointK;           // the day's air extremes and dew point
             public double a, b, c;                         // Parton-Logan, hours
             public double linkeTurbidity;
+            public double windSpeed;                       // m/s at 10 m (item 6)
+            public bool windFromProfile;
         }
 
         /// <summary>The site profile driving the site, or null when the settings do.</summary>
@@ -362,7 +365,7 @@ namespace IMT.Thermal
 
             Shader.SetGlobalFloat(k_AirT, (float)AirTemperature);
             Shader.SetGlobalFloat(k_Convective, m_ConvectiveCoefficient);
-            Shader.SetGlobalFloat(k_WindSpeed, m_WindSpeed);
+            Shader.SetGlobalFloat(k_WindSpeed, (float)site.windSpeed);
 
             SolarAngles sun = ThermalMath.Solar(site.latitude, site.longitude, utc);
             Sun = sun;
@@ -405,6 +408,8 @@ namespace IMT.Thermal
                         altitude = m_SiteProfile.Altitude,
                         minK = m.minK, maxK = m.maxK, dewPointK = m.dewPointK,
                         a = m.a, b = m.b, c = m.c, linkeTurbidity = m.linkeTurbidity,
+                        windSpeed = m_SiteProfile.HasWind ? m_SiteProfile.WindSpeed(utc) : m_WindSpeed,
+                        windFromProfile = m_SiteProfile.HasWind,
                     };
                 }
                 if (!m_WarnedProfile)
@@ -419,6 +424,7 @@ namespace IMT.Thermal
                 latitude = m_Latitude, longitude = m_Longitude, altitude = m_SiteAltitude,
                 minK = m_AirTemperatureMin, maxK = m_AirTemperatureMax, dewPointK = m_DewPoint,
                 a = m_AirCurveA, b = m_AirCurveB, c = m_AirCurveC, linkeTurbidity = m_LinkeTurbidity,
+                windSpeed = m_WindSpeed,
             };
         }
 

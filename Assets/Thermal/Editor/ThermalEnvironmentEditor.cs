@@ -25,7 +25,8 @@ namespace IMT.Thermal
             {
                 EditorGUILayout.Space();
                 EditorGUILayout.HelpBox($"The site profile '{profile.DisplayName}' drives the location, the air's " +
-                                        "minimum, maximum, dew point and curve, and the Linke turbidity - those " +
+                                        "minimum, maximum, dew point and curve, the Linke turbidity" +
+                                        (profile.HasWind ? " and the wind" : "") + " - those " +
                                         "settings above are not used while it is set.\n" + profile.Provenance,
                                         MessageType.Info);
             }
@@ -43,6 +44,8 @@ namespace IMT.Thermal
                 EditorGUILayout.LabelField("Air Curve a, b, c", string.Format(inv, "{0:F2}, {1:F2}, {2:F2} h", site.a, site.b, site.c));
                 EditorGUILayout.LabelField("Linke Turbidity", string.Format(inv, "{0:F2}", site.linkeTurbidity));
             }
+            EditorGUILayout.LabelField("Wind (10 m)", site.windSpeed.ToString("F2", CultureInfo.InvariantCulture) +
+                                       " m/s" + (site.windFromProfile ? "  (profile)" : "  (setting)"));
             EditorGUILayout.LabelField("Simulated UTC",
                 environment.SunUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture));
             EditorGUILayout.LabelField("Sun Elevation", Degrees(sun.elevation));
