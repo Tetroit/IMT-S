@@ -9,7 +9,6 @@ SAMPLER(sampler_ThermalLut);
 float4 _ThermalLutParams;
 float3 _ThermalSunDirection;
 float _ThermalAirTemperature;
-float _ThermalConvectiveCoefficient;   // the old constant h, read until THERMAL_PHYSICS_CONVECTION (item 6)
 float _ThermalWindSpeed;               // m/s at 10 m, open terrain (item 6)
 float _ThermalDirectNormalIrradiance;
 float _ThermalDiffuseHorizontalIrradiance;
@@ -28,11 +27,7 @@ ThermalEnvironment MakeEnvironment()
 {
     ThermalEnvironment e;
     e.airTemperature    = _ThermalAirTemperature;
-#if defined(THERMAL_PHYSICS_CONVECTION)
     e.windSpeed         = _ThermalWindSpeed;
-#else
-    e.convectiveCoeff   = _ThermalConvectiveCoefficient;
-#endif
     e.directNormal      = _ThermalDirectNormalIrradiance;
     e.diffuseHorizontal = _ThermalDiffuseHorizontalIrradiance;
     e.globalHorizontal  = _ThermalGlobalHorizontalIrradiance;

@@ -26,7 +26,7 @@ namespace IMT.Thermal
 
         static readonly string[] k_Floats =
         {
-            "_ThermalAirTemperature", "_ThermalConvectiveCoefficient", "_ThermalWindSpeed", "_ThermalDirectNormalIrradiance",
+            "_ThermalAirTemperature", "_ThermalWindSpeed", "_ThermalDirectNormalIrradiance",
             "_ThermalDiffuseHorizontalIrradiance", "_ThermalGlobalHorizontalIrradiance", "_ThermalGroundAlbedo",
         };
         static readonly string[] k_Vectors = { "_ThermalSunDirection", "_ThermalLutParams", "_ThermalSkyParams" };

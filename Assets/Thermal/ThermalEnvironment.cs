@@ -39,9 +39,6 @@ namespace IMT.Thermal
         [SerializeField] float m_AirCurveA = 2.19f;
         [SerializeField] float m_AirCurveB = 2.58f;
         [SerializeField] float m_AirCurveC = 0.22f;
-        [Tooltip("The old constant h, W m-2 K-1, everywhere. Read only until ThermalPhysics.hlsl defines " +
-                 "THERMAL_PHYSICS_CONVECTION; from then on the wind below sets h per surface (item 6).")]
-        [SerializeField] float m_ConvectiveCoefficient = 15f;
         [Tooltip("Wind speed, m/s, at 10 m over open terrain, as a weather station or ERA5-Land reports it. With each " +
                  "material's surface group it sets the convection (item 6). 3 m/s is De Bilt's median over 2011-2025. " +
                  "A site profile with wind replaces it with the clear day's wind through the day.")]
@@ -104,7 +101,6 @@ namespace IMT.Thermal
         static readonly int k_DiffuseHorizontal = Shader.PropertyToID("_ThermalDiffuseHorizontalIrradiance");
         static readonly int k_GlobalHorizontal = Shader.PropertyToID("_ThermalGlobalHorizontalIrradiance");
         static readonly int k_GroundAlbedo = Shader.PropertyToID("_ThermalGroundAlbedo");
-        static readonly int k_Convective = Shader.PropertyToID("_ThermalConvectiveCoefficient");
         static readonly int k_WindSpeed = Shader.PropertyToID("_ThermalWindSpeed");
 
         // D-013 sky tables. They hold dimensionless emissivities, so the diurnal air temperature never
@@ -364,7 +360,6 @@ namespace IMT.Thermal
             }
 
             Shader.SetGlobalFloat(k_AirT, (float)AirTemperature);
-            Shader.SetGlobalFloat(k_Convective, m_ConvectiveCoefficient);
             Shader.SetGlobalFloat(k_WindSpeed, (float)site.windSpeed);
 
             SolarAngles sun = ThermalMath.Solar(site.latitude, site.longitude, utc);

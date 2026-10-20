@@ -134,10 +134,8 @@ Shader "Thermal/Base"
                 surf.sunVisibility = S;
                 surf.skyDiffuse = skyD.x;
                 surf.skyDiffuseBroadband = skyD.y;
-            #if defined(THERMAL_PHYSICS_CONVECTION)
                 surf.windA = _ThermalWindA;
                 surf.windB = _ThermalWindB;
-            #endif
                 
                 EnergyBalance b = MakeBalance(N, surf, env);
                 float surfaceTemperature = SurfaceTemperature(b);

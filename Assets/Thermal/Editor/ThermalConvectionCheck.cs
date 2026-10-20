@@ -24,8 +24,7 @@ namespace IMT.Thermal
     /// (pow of a negative dT, a fixed exponent, no still-air term, a sum for the root of squares, a wrong constant,
     /// a Newton step without dh/dT, 0/0 at equilibrium, one step, h frozen at the seed, dT reversed, and - found in
     /// review on 2026-10-20 - a derivative without h itself) and caught every one. Two of them only one case
-    /// catches, so keep these: "zinc roof, calm day" (dh/dT) and "sky at air, calm" (0/0). Until
-    /// ThermalPhysics.hlsl defines THERMAL_PHYSICS_CONVECTION the check reports it as not written yet.
+    /// catches, so keep these: "zinc roof, calm day" (dh/dT) and "sky at air, calm" (0/0).
     /// </summary>
     static class ThermalConvectionCheck
     {
@@ -191,14 +190,6 @@ namespace IMT.Thermal
             Debug.Log($"[Convection] buffers: {coefficientCases.Length * 4 + balanceCases.Length * 19} fields of " +
                       $"{coefficientCases.Length + balanceCases.Length} cases read back exactly");
 
-            if (!Ready(shader))
-            {
-                Debug.LogWarning("[Convection] skipped: ThermalPhysics.hlsl does not define THERMAL_PHYSICS_CONVECTION " +
-                                 "yet. Add #define THERMAL_PHYSICS_CONVECTION 1 once ConvectiveCoefficient and the wind " +
-                                 "fields are in");
-                return;
-            }
-
             int failed = 0, checks = 0;
             void Report(bool ok, string line)
             {
@@ -321,18 +312,6 @@ namespace IMT.Thermal
                 if (BitConverter.SingleToInt32Bits(got[i]) != BitConverter.SingleToInt32Bits(sent[i]))
                     differ++;
             return differ;
-        }
-
-        static bool Ready(ComputeShader shader)
-        {
-            int kernel = shader.FindKernel("Ready");
-            using var ready = new ComputeBuffer(1, sizeof(float));
-            ready.SetData(new[] { -1f });
-            shader.SetBuffer(kernel, "_Ready", ready);
-            shader.Dispatch(kernel, 1, 1, 1);
-            var result = new float[1];
-            ready.GetData(result);
-            return result[0] == 1f;
         }
 
         static float[] RunCoefficient(ComputeShader shader, CoefficientCase[] cases)

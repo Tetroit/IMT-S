@@ -1,19 +1,16 @@
 // Thermal > Convection Check's kernels (item 6, wind): ThermalPhysics.hlsl's own functions, run on the GPU on
 // cases with known answers. The cases and the answers are in ThermalConvectionCheck.cs.
 //
-// Until ThermalPhysics.hlsl defines THERMAL_PHYSICS_CONVECTION, the kernels compile to nothing and the check
-// reports the physics as not written yet, so the console stays clean while it is being written. Once it is
-// defined, they need: ThermalEnvironment.windSpeed, ThermalSurface.windA and .windB, and
-// float ConvectiveCoefficient(float windA, float windB, float windSpeed, float dT).
+// They need ThermalEnvironment.windSpeed, ThermalSurface.windA and .windB, and
+// float ConvectiveCoefficient(float windA, float windB, float windSpeed, float dT); a contract the physics no longer
+// meets shows as compile errors, which the check reports with ThermalPhysics.hlsl's lines.
 
 #pragma kernel Echo
-#pragma kernel Ready
 #pragma kernel Coefficient
 #pragma kernel Balance
 
 #include "../ThermalPhysics.hlsl"
 
-RWStructuredBuffer<float> _Ready;
 uint _Count;
 
 struct CoefficientCase
@@ -75,27 +72,13 @@ void Echo(uint3 id : SV_DispatchThreadID)
     }
 }
 
-[numthreads(1, 1, 1)]
-void Ready(uint3 id : SV_DispatchThreadID)
-{
-#if defined(THERMAL_PHYSICS_CONVECTION)
-    _Ready[0] = 1;
-#else
-    _Ready[0] = 0;
-#endif
-}
-
 [numthreads(64, 1, 1)]
 void Coefficient(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _Count)
         return;
-#if defined(THERMAL_PHYSICS_CONVECTION)
     CoefficientCase c = _CoefficientCases[id.x];
     _CoefficientOut[id.x] = ConvectiveCoefficient(c.windA, c.windB, c.windSpeed, c.dT);
-#else
-    _CoefficientOut[id.x] = 0;
-#endif
 }
 
 [numthreads(64, 1, 1)]
@@ -103,7 +86,6 @@ void Balance(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _Count)
         return;
-#if defined(THERMAL_PHYSICS_CONVECTION)
     BalanceCase c = _BalanceCases[id.x];
 
     // Zeroed first: a field added later that the check does not know reads 0, not garbage.
@@ -128,7 +110,4 @@ void Balance(uint3 id : SV_DispatchThreadID)
     EnergyBalance b = MakeBalance(float3(c.nx, c.ny, c.nz), s, e);
     float t = SurfaceTemperature(b);
     _BalanceOut[id.x] = float2(t, ConvectiveCoefficient(c.windA, c.windB, c.windSpeed, t - c.airT));
-#else
-    _BalanceOut[id.x] = 0;
-#endif
 }
