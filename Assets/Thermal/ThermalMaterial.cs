@@ -12,6 +12,10 @@ namespace IMT.Thermal
         [SerializeField, Range(0, 1)] public float m_SolarAbsorptivity = 0.9f;
         [Tooltip("Where the two values come from: dataset, handbook table or measurement.")]
         [SerializeField, TextArea(1, 4)] public string m_Source;
+        [Tooltip("How the surface meets the air, which sets how strongly the wind cools or warms it (item 6). " +
+                 "Objects stand in the wind; Ground and Vegetation are the land surface, by roughness and height. " +
+                 "A road, square or car park is Ground/Paving. Anything without a ThermalMaterial counts as an Object.")]
+        [SerializeField] public ThermalSurfaceGroup m_SurfaceGroup = ThermalSurfaceGroup.Object;
 
         // D-010's MVP: the values painted per texel. Either map is optional; without one, the values above
         // hold for the whole object, exactly as before. A trim sheet is one material: the sheet's *_Thermal map,
@@ -44,6 +48,8 @@ namespace IMT.Thermal
         public static readonly int k_NormalStrength = Shader.PropertyToID("_ThermalNormalStrength");
         public static readonly int k_NormalMipBias = Shader.PropertyToID("_ThermalNormalMipBias");
         public static readonly int k_MapST = Shader.PropertyToID("_ThermalMapST");
+        public static readonly int k_WindA = Shader.PropertyToID("_ThermalWindA");
+        public static readonly int k_WindB = Shader.PropertyToID("_ThermalWindB");
 
         [NonSerialized] MaterialPropertyBlock m_Block;
 
@@ -113,6 +119,9 @@ namespace IMT.Thermal
         {
             block.SetFloat(k_Emissivity, m_Emissivity);
             block.SetFloat(k_SolarAbsorptivity, m_SolarAbsorptivity);
+            (float windA, float windB) = ThermalSurfaceGroups.Wind(m_SurfaceGroup);
+            block.SetFloat(k_WindA, windA);
+            block.SetFloat(k_WindB, windB);
 
             // Maps: a missing one is switched off, not faked - the shader skips it, so an object without
             // maps renders exactly as before. The stand-in textures only keep the slots bound.

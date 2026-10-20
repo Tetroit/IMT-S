@@ -15,6 +15,10 @@ Shader "Thermal/Base"
         _ThermalNormalStrength ("Normal Map On (its strength is baked in)", Range(0,1)) = 0
         _ThermalNormalMipBias ("Normal Mip Bias", Float) = 0
         _ThermalMapST ("Map Tiling (xy) and Offset (zw)", Vector) = (1, 1, 0, 0)
+        // The surface group's wind numbers (item 6), set per draw by ThermalMaterial. The defaults are an Object's,
+        // so anything drawn without a ThermalMaterial - the override's own values - counts as one.
+        _ThermalWindA ("Wind a (from the surface group)", Float) = 2.38
+        _ThermalWindB ("Wind b (from the surface group)", Float) = 0.89
     }
 
     SubShader
@@ -71,6 +75,8 @@ Shader "Thermal/Base"
             float _ThermalNormalStrength;
             float _ThermalNormalMipBias;
             float4 _ThermalMapST;
+            float _ThermalWindA;
+            float _ThermalWindB;
 
             Varyings vert(Attributes IN)
             {
@@ -128,6 +134,10 @@ Shader "Thermal/Base"
                 surf.sunVisibility = S;
                 surf.skyDiffuse = skyD.x;
                 surf.skyDiffuseBroadband = skyD.y;
+            #if defined(THERMAL_PHYSICS_CONVECTION)
+                surf.windA = _ThermalWindA;
+                surf.windB = _ThermalWindB;
+            #endif
                 
                 EnergyBalance b = MakeBalance(N, surf, env);
                 float surfaceTemperature = SurfaceTemperature(b);
