@@ -94,6 +94,13 @@ namespace ProceduralGeneration.SatContext
             return JsonUtility.FromJson<TileRequestStatus>(json);
         }
 
+        /// <summary>The server's tile sources and the ones a tile request uses by default.</summary>
+        public static async Task<ServerConfig> GetConfigAsync(CancellationToken cancellationToken = default)
+        {
+            string json = await SendAsync(UnityWebRequest.Get($"{baseUrl}/api/config"), cancellationToken);
+            return JsonUtility.FromJson<ServerConfig>(json);
+        }
+
         /// <summary>True if the server is reachable and has a segmentation model loaded.</summary>
         public static async Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default)
         {
@@ -204,6 +211,40 @@ namespace ProceduralGeneration.SatContext
             public bool isDone => status == "done";
             public bool isFailed => status == "error";
             public bool isFinished => isDone || isFailed;
+        }
+
+        [Serializable]
+        public class TileSourceInfo
+        {
+            public string key;
+            public string name;
+            public int tileSize;
+            public int minZoom;
+            public int maxZoom;
+        }
+
+        [Serializable]
+        public class ServerDefaults
+        {
+            /// <summary>Key of the imagery source, used for color.png.</summary>
+            public string imagery;
+            /// <summary>Key of the terrain source, used for height.npy.</summary>
+            public string terrain;
+        }
+
+        /// <summary>Part of /api/config.</summary>
+        [Serializable]
+        public class ServerConfig
+        {
+            public TileSourceInfo[] imagery;
+            public TileSourceInfo[] terrain;
+            public ServerDefaults defaults;
+
+            public TileSourceInfo defaultImagery => Find(imagery, defaults?.imagery);
+            public TileSourceInfo defaultTerrain => Find(terrain, defaults?.terrain);
+
+            private static TileSourceInfo Find(TileSourceInfo[] sources, string key) =>
+                sources == null ? null : Array.Find(sources, s => s.key == key);
         }
 
         [Serializable]

@@ -10,11 +10,22 @@ namespace ProceduralGeneration.SatContext
     {
         public string folderPath = "Test Data";
         public string absoluteFolderPath => Path.Combine(Application.dataPath, folderPath);
-        public string metadataPath => Path.Combine(absoluteFolderPath, "metadata.json");
-        public string segmentationImagePath => Path.Combine(absoluteFolderPath,"segmentation_class.tif");
+        public string metadataPath => Path.Combine(absoluteFolderPath, SegmentationApiClient.MetadataFile);
+        // The tile API (/api/tile-requests) names its files in the metadata, a full job output (/api/jobs) uses the legacy names.
+        public string segmentationImagePath => ResolvePath(_metadata?.export?.segmentation?.file, SegmentationApiClient.SegmentationFile, "segmentation_class.tif");
+        /// <summary>Optional, only a full job output has it.</summary>
         public string segmentationConfidenceImagePath => Path.Combine(absoluteFolderPath,"segmentation_confidence.png");
-        public string colorImagePath => Path.Combine(absoluteFolderPath,"sat_color.png");
-        public string heightmapImagePath => Path.Combine(absoluteFolderPath,"height_meters.npy");
+        public string colorImagePath => ResolvePath(_metadata?.export?.color?.file, SegmentationApiClient.ColorFile, "sat_color.png");
+        public string heightmapImagePath => ResolvePath(_metadata?.export?.height?.file, SegmentationApiClient.HeightFile, "height_meters.npy");
+
+        // Pipeline caches written by TerrainGenerator.RunPipeline.
+        public const string HousesCacheFile = "houses.json";
+        public const string TreesCacheFile = "trees.json";
+        public const string RoadsCacheFile = "roads.json";
+        public string housesCachePath => Path.Combine(absoluteFolderPath, HousesCacheFile);
+        public string treesCachePath => Path.Combine(absoluteFolderPath, TreesCacheFile);
+        public string roadsCachePath => Path.Combine(absoluteFolderPath, RoadsCacheFile);
+        public string[] cachePaths => new[] { housesCachePath, treesCachePath, roadsCachePath };
 
         
         [SerializeField] private SatMetadata _metadata;
@@ -29,6 +40,14 @@ namespace ProceduralGeneration.SatContext
         public Texture2D segmentationConfidenceImage => _segmentationConfidenceImage;
         public Texture2D colorImage => _colorImage;
         public NpyArray heightmapImage => _heightmapImage;
+
+        // Image data is not serialized, it is gone after a domain reload.
+        public bool hasMetadata => _metadata?.output?.mercatorBoundsM != null && _metadata.imagery != null;
+        public bool hasSegmentation => _segmentationImage != null && _segmentationImage.data != null;
+        public bool hasHeightmap => _heightmapImage != null && _heightmapImage.data != null && _heightmapImage.shape != null && _heightmapImage.shape.Length >= 2;
+        public bool hasColor => _colorImage != null;
+        /// <summary>Everything <see cref="CheckPaths"/> requires, the confidence image is optional.</summary>
+        public bool essentialsLoaded => hasMetadata && hasSegmentation && hasHeightmap && hasColor;
 
         private const double earthCircumference = 2 * Math.PI * 6378137.0;
 
@@ -57,6 +76,18 @@ namespace ProceduralGeneration.SatContext
             bounds[2] -= origin.x;
             bounds[3] -= origin.y;
             return bounds;
+        }
+
+        /// <summary>
+        /// The file named by the metadata, otherwise the tile API's file name or the legacy one, whichever exists.
+        /// </summary>
+        private string ResolvePath(string metadataFile, string fileName, string legacyFileName)
+        {
+            if (!string.IsNullOrEmpty(metadataFile))
+                return Path.Combine(absoluteFolderPath, metadataFile);
+            string path = Path.Combine(absoluteFolderPath, fileName);
+            string legacyPath = Path.Combine(absoluteFolderPath, legacyFileName);
+            return File.Exists(path) || !File.Exists(legacyPath) ? path : legacyPath;
         }
 
         private static Texture2D LoadTexture(string filePath, TextureFormat format = TextureFormat.RGB24)
@@ -101,11 +132,9 @@ namespace ProceduralGeneration.SatContext
                 Logger.Logger.Log($"Segmentation image file found: {segmentationImagePath}", "ProcGen", this);
             
             
+            // Optional, a missing confidence image does not fail the check.
             if (!File.Exists(segmentationConfidenceImagePath))
-            {
-                Logger.Logger.LogError($"Segmentation confidence image doesn't exist: {segmentationConfidenceImagePath}", "ProcGen", this);
-                result = false;
-            }
+                Logger.Logger.Log($"Segmentation confidence image doesn't exist (optional): {segmentationConfidenceImagePath}", "ProcGen", this);
             else 
                 Logger.Logger.Log($"Segmentation confidence image file found: {segmentationConfidenceImagePath}", "ProcGen", this);
             
@@ -130,18 +159,51 @@ namespace ProceduralGeneration.SatContext
             
             return result;
         }
-        public void LoadData(){
+        public void LoadData()
+        {
+            // Metadata first, it names the other files.
+            if (File.Exists(metadataPath))
+                _metadata = SatMetadata.Load(metadataPath);
             if (!CheckPaths())
             {
                 Logger.Logger.LogError("CheckPaths failed", "ProcGen", this);
                 return;
             }
             
-            _metadata = SatMetadata.Load(metadataPath);
             _segmentationImage = TiffReader.Load(segmentationImagePath);
             _heightmapImage = NpyReader.Load(heightmapImagePath);
             _colorImage = LoadTexture(colorImagePath);
-            _segmentationConfidenceImage = LoadTexture(segmentationConfidenceImagePath, TextureFormat.R8);
+            _segmentationConfidenceImage = File.Exists(segmentationConfidenceImagePath)
+                ? LoadTexture(segmentationConfidenceImagePath, TextureFormat.R8)
+                : null;
+        }
+
+        /// <summary>Loads only metadata.json, the images are loaded by <see cref="LoadData"/>.</summary>
+        public void LoadMetadata()
+        {
+            _metadata = SatMetadata.Load(metadataPath);
+        }
+
+        /// <summary>
+        /// Deletes the pipeline caches (<see cref="cachePaths"/>) and their .meta files, nothing else in the folder.
+        /// </summary>
+        /// <returns>Number of deleted caches.</returns>
+        public int ClearCache()
+        {
+            int deleted = 0;
+            foreach (string path in cachePaths)
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                    deleted++;
+                    Logger.Logger.Log($"Deleted cache {path}", "ProcGen", this);
+                }
+                string metaPath = path + ".meta";
+                if (File.Exists(metaPath))
+                    File.Delete(metaPath);
+            }
+            return deleted;
         }
     }
 }

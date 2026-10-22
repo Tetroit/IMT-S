@@ -24,6 +24,11 @@ public class BuildingAsset : ScriptableObject
     public Material roofSidesMaterial;
     public Material roofTopMaterial;
     public Material aFrameGableMaterial;
+    [Header("Roof UVs")]
+    [Tooltip("UV of every vertex using the material above, picks one cell of the sheet so the roof reads as a plain material.")]
+    public Vector2 roofSidesUV;
+    public Vector2 roofTopUV;
+    public Vector2 aFrameGableUV;
     [Header("Roof offsets")]
     public float topPointVerticalOffset = 1.43f;
 

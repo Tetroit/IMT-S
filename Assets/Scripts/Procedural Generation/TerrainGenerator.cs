@@ -1,5 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using ProceduralGeneration.ImageProcessing;
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.SceneManagement;
+#endif
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -13,9 +19,7 @@ namespace ProceduralGeneration
         [SerializeField] private Transform _camera;
         [SerializeField] private GameObject _tilePrefab;
         [SerializeField] private SatContext.SatContext _satContext;
-        [Tooltip("Leave empty to use the GlobalConfig in the scene.")]
-        [SerializeField] private GeometryConfig _geometryConfig;
-        private GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
+        [SerializeField] private TerrainConfig _terrainConfig;
 
         [Header("Mesh config")]
         [Range(1,16)]
@@ -32,6 +36,14 @@ namespace ProceduralGeneration
         [SerializeField] private Dictionary<int, Material> _segmentMaterials = new Dictionary<int, Material>();
         [SerializeField] private int _agricultureSegID;
         [SerializeField] private Dictionary<Color32, Material> _agricultureMaterials = new Dictionary<Color32, Material>();
+
+        [Header("Thermal spritesheet UVs")]
+        [Tooltip("UV0 of every vertex, picks the cell of the thermal spritesheet. World space UVs move to UV1.")]
+        [SerializeField] private Vector2 _defaultUV;
+        [Tooltip("Segments without an entry use the default UV.")]
+        [SerializeField] private Dictionary<int, Vector2> _segmentUVs = new Dictionary<int, Vector2>();
+        [Tooltip("Keyed like _agricultureMaterials, colors without an entry use the agriculture segment UV.")]
+        [SerializeField] private Dictionary<Color32, Vector2> _agricultureUVs = new Dictionary<Color32, Vector2>();
 
         public struct SubmeshRef
         {
@@ -79,22 +91,28 @@ namespace ProceduralGeneration
             if (!_segmentMaterials.TryGetValue(id, out var material)) return _defaultMaterial;
             return material;
         }
-        public void CreateMeshForContext()
+        public Vector2 GetUV(int id)
+        {
+            if (!_segmentUVs.TryGetValue(id, out var uv)) return _defaultUV;
+            return uv;
+        }
+        /// <returns>False if the inputs are missing.</returns>
+        public bool CreateMeshForContext()
         {
             if (_satContext == null)
             {
                 Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
-                return;
+                return false;
             }
-            if (geometryConfig == null)
+            if (_terrainConfig == null)
             {
-                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
-                return;
+                Logger.Logger.LogError($"Terrain config is null", "ProcGen", this);
+                return false;
             }
             if (_tilePrefab == null)
             {
                 Logger.Logger.LogError($"Tile prefab is null", "ProcGen", this);
-                return;
+                return false;
             }
             if (_defaultMaterial == null)
                 Logger.Logger.LogWarning($"Default material is null, unmapped segments will render without material", "ProcGen", this);
@@ -105,12 +123,12 @@ namespace ProceduralGeneration
             if (segmentation == null || segmentation.data == null)
             {
                 Logger.Logger.LogError($"Segmentation image is not loaded", "ProcGen", this);
-                return;
+                return false;
             }
             if (heightmap == null || heightmap.data == null || heightmap.shape == null || heightmap.shape.Length < 2)
             {
                 Logger.Logger.LogError($"Heightmap is not loaded", "ProcGen", this);
-                return;
+                return false;
             }
 
             int imageWidth = segmentation.width;
@@ -123,7 +141,7 @@ namespace ProceduralGeneration
             double heightmapScaleY = (double)heightmapHeight / imageHeight;
 
             // Mercator bounds [minX, minY, maxX, maxY] relative to the geometry origin.
-            double[] bounds = _satContext.GetWorldSpaceBounds(geometryConfig.origin);
+            double[] bounds = _satContext.GetWorldSpaceBounds(_terrainConfig.origin);
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
 
@@ -131,7 +149,7 @@ namespace ProceduralGeneration
             const double earthRadius = 6378137.0;
             double centerMercatorY = (_satContext.metadata.output.mercatorBoundsM[1] + _satContext.metadata.output.mercatorBoundsM[3]) / 2;
             double latitude = 2 * Math.Atan(Math.Exp(centerMercatorY / earthRadius)) - Math.PI / 2;
-            float heightScale = (float)(geometryConfig.scale / Math.Cos(latitude));
+            float heightScale = (float)(_terrainConfig.scale / Math.Cos(latitude));
 
             // Bilinear sample, x and y are pixel coordinates in heightmap space (pixel centers at .5).
             float SampleHeightMap(double x, double y)
@@ -184,21 +202,29 @@ namespace ProceduralGeneration
             var vertices = new List<Vector3>();
             var normals = new List<Vector3>();
             var uvs = new List<Vector2>();
+            var worldUVs = new List<Vector2>();
             // Submesh key: segment id + index into agricultureColors (-1 when not agriculture).
             var trianglesBySubmesh = new Dictionary<(int segId, int agricultureIndex), List<int>>();
             var submeshKeys = new List<(int segId, int agricultureIndex)>();
             var quadVerts = new Vector3[4];
 
-            float pixelEdgeX = (float)(pixelSizeX * geometryConfig.scale);
-            float pixelEdgeZ = (float)(pixelSizeY * geometryConfig.scale);
+            float pixelEdgeX = (float)(pixelSizeX * _terrainConfig.scale);
+            float pixelEdgeZ = (float)(pixelSizeY * _terrainConfig.scale);
 
             // Agriculture quads pick the _agricultureMaterials entry whose key is closest to their sat color.
             Texture2D colorImage = _satContext.colorImage;
             var agricultureColors = new Color32[_agricultureMaterials.Count];
             _agricultureMaterials.Keys.CopyTo(agricultureColors, 0);
             var agricultureScores = new float[agricultureColors.Length];
+            // Spritesheet UV per agricultureColors index, falls back to the agriculture segment UV.
+            var agricultureUVs = new Vector2[agricultureColors.Length];
             for (int i = 0; i < agricultureColors.Length; i++)
+            {
                 agricultureScores[i] = AgricultureColorScore(agricultureColors[i]);
+                agricultureUVs[i] = _agricultureUVs.TryGetValue(agricultureColors[i], out var agricultureUV)
+                    ? agricultureUV
+                    : GetUV(_agricultureSegID);
+            }
             bool sampleAgriculture = agricultureColors.Length > 0 && colorImage != null && colorImage.isReadable;
             if (agricultureColors.Length > 0 && !sampleAgriculture)
                 Logger.Logger.LogWarning($"Color image is not loaded or not readable, agriculture uses the segment material", "ProcGen", this);
@@ -303,9 +329,9 @@ namespace ProceduralGeneration
 
                     // Chunk origin is its top-left corner, image y goes down so unity z goes negative.
                     Vector3 chunkPos = new Vector3(
-                        (float)((bounds[0] + startX * pixelSizeX) * geometryConfig.scale),
+                        (float)((bounds[0] + startX * pixelSizeX) * _terrainConfig.scale),
                         0,
-                        (float)((bounds[3] - startY * pixelSizeY) * geometryConfig.scale));
+                        (float)((bounds[3] - startY * pixelSizeY) * _terrainConfig.scale));
 
                     // Quad over pixels [x0, x0+size) x [y0, y0+size) of the chunk, clamped to the image edge.
                     void AddBlockQuad(int x0, int y0, int size, int segId)
@@ -334,15 +360,20 @@ namespace ProceduralGeneration
                         }
                         MeshOperations.AddQuad(quadVerts, vertices, triangles, normals);
 
+                        // Spritesheet UV, the same for the whole quad so the thermal material reads one cell.
+                        Vector2 sheetUV = agricultureIndex >= 0 ? agricultureUVs[agricultureIndex] : GetUV(segId);
+                        for (int i = 0; i < 4; i++)
+                            uvs.Add(sheetUV);
+
                         // World space UVs, same as CreateRandomMesh.
                         float mapLeft = chunkPos.x + left;
                         float mapRight = chunkPos.x + right;
                         float mapTop = chunkPos.z + top;
                         float mapBottom = chunkPos.z + bottom;
-                        uvs.Add(new Vector2(mapLeft, mapBottom)/_uvScale);
-                        uvs.Add(new Vector2(mapLeft, mapTop)/_uvScale);
-                        uvs.Add(new Vector2(mapRight, mapTop)/_uvScale);
-                        uvs.Add(new Vector2(mapRight, mapBottom)/_uvScale);
+                        worldUVs.Add(new Vector2(mapLeft, mapBottom)/_uvScale);
+                        worldUVs.Add(new Vector2(mapLeft, mapTop)/_uvScale);
+                        worldUVs.Add(new Vector2(mapRight, mapTop)/_uvScale);
+                        worldUVs.Add(new Vector2(mapRight, mapBottom)/_uvScale);
                         quadCount++;
                     }
 
@@ -390,6 +421,7 @@ namespace ProceduralGeneration
                     mesh.SetVertices(vertices);
                     mesh.SetNormals(normals);
                     mesh.SetUVs(0, uvs);
+                    mesh.SetUVs(1, worldUVs);
 
                     // One submesh per segment (and agriculture color) present in this chunk,
                     // lists are reused so skip empty ones.
@@ -422,6 +454,7 @@ namespace ProceduralGeneration
                     vertices.Clear();
                     normals.Clear();
                     uvs.Clear();
+                    worldUVs.Clear();
                     foreach (var triangles in trianglesBySubmesh.Values)
                         triangles.Clear();
                 }
@@ -429,6 +462,7 @@ namespace ProceduralGeneration
 
             AssignMaterials();
             Logger.Logger.Log($"Created {(chunksX * chunksY).ToString()} chunks, {quadCount.ToString()} quads for {imageWidth}x{imageHeight} pixels, pixel step {step}", "ProcGen");
+            return true;
         }
 
         // Agriculture colors are matched by closest score, hue and saturation in [0, 1].
@@ -486,6 +520,219 @@ namespace ProceduralGeneration
             foreach (var pair in materialsByRenderer)
                 pair.Key.sharedMaterials = pair.Value;
         }
+
+        // ==================== PIPELINE ====================
+
+        /// <summary>
+        /// Full generation with the generators on this object: terrain mesh -> houses (find -> build)
+        /// -> trees (distribute -> build) -> road graph. The other generators are pointed at this generator's
+        /// sat context and terrain config first, missing ones are skipped.
+        /// Houses, tree points and the road graph are cached as json in the sat context folder and loaded instead of
+        /// rebuilt next time, <see cref="ClearPipelineCache"/> removes them.
+        /// </summary>
+        /// <returns>False if the pipeline was terminated.</returns>
+        public bool RunPipeline()
+        {
+            if (_satContext == null)
+            {
+                Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
+                return false;
+            }
+            if (_terrainConfig == null)
+            {
+                Logger.Logger.LogError($"Terrain config is null", "ProcGen", this);
+                return false;
+            }
+            if (!EnsureSatContextLoaded())
+                return false;
+
+            var houseGenerator = GetComponent<HouseGenerator>();
+            var treeGenerator = GetComponent<TreeGenerator>();
+            var roadBuilder = GetComponent<RoadNetworkBuilder>();
+            BindGenerators(houseGenerator, treeGenerator, roadBuilder);
+
+            DestroyGenerated();
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                EditorSceneManager.MarkSceneDirty(gameObject.scene);
+#endif
+
+            BindReferences();
+            if (!CreateMeshForContext())
+                return false;
+
+            // Trees avoid houses, so new houses make the cached trees stale.
+            bool housesRebuilt = false;
+            if (houseGenerator == null)
+                Logger.Logger.LogWarning($"No HouseGenerator on {name}, skipping houses", "ProcGen", this);
+            else
+            {
+                string path = _satContext.housesCachePath;
+                if (PipelineCache.TryLoad(path, _terrainConfig, out HousesCache housesCache))
+                {
+                    houseGenerator.SetHouses(housesCache.houses);
+                    Logger.Logger.Log($"Loaded {housesCache.houses.Count.ToString()} houses from {path}", "ProcGen");
+                }
+                else
+                {
+                    if (!houseGenerator.FindHouses())
+                        return false;
+                    new HousesCache { houses = new List<HouseGenerator.House>(houseGenerator.houses) }.Save(path, _terrainConfig);
+                    housesRebuilt = true;
+                }
+                if (houseGenerator.houses.Count > 0)
+                    houseGenerator.GenerateBuildings();
+            }
+
+            if (treeGenerator == null)
+                Logger.Logger.LogWarning($"No TreeGenerator on {name}, skipping trees", "ProcGen", this);
+            else
+            {
+                string path = _satContext.treesCachePath;
+                if (housesRebuilt && File.Exists(path))
+                    Logger.Logger.Log($"Houses were rebuilt, ignoring cached trees {path}", "ProcGen");
+                if (!housesRebuilt && PipelineCache.TryLoad(path, _terrainConfig, out TreesCache treesCache))
+                {
+                    treeGenerator.SetPoints(treesCache.points);
+                    Logger.Logger.Log($"Loaded {treesCache.points.Count.ToString()} tree points from {path}", "ProcGen");
+                }
+                else
+                {
+                    if (!treeGenerator.DistributePoints())
+                        return false;
+                    new TreesCache { points = new List<Vector3>(treeGenerator.points) }.Save(path, _terrainConfig);
+                }
+                treeGenerator.GenerateTrees();
+            }
+
+            if (roadBuilder == null)
+                Logger.Logger.LogWarning($"No RoadNetworkBuilder on {name}, skipping roads", "ProcGen", this);
+            else
+            {
+                string path = _satContext.roadsCachePath;
+                if (PipelineCache.TryLoad(path, _terrainConfig, out RoadsCache roadsCache) && roadsCache.graph != null)
+                {
+                    roadBuilder.SetGraph(roadsCache.graph);
+                    Logger.Logger.Log($"Loaded road graph with {roadsCache.graph.Nodes.Count.ToString()} nodes, {roadsCache.graph.Edges.Count.ToString()} edges from {path}", "ProcGen");
+                }
+                else
+                {
+                    if (!roadBuilder.TryBuild())
+                        return false;
+                    new RoadsCache { graph = roadBuilder.Graph }.Save(path, _terrainConfig);
+                }
+            }
+
+            Logger.Logger.Log($"Pipeline finished for {_satContext.name}", "ProcGen");
+            return true;
+        }
+
+        /// <summary>
+        /// Loads the sat context data if it is not loaded, fails if the essential data is still missing.
+        /// </summary>
+        private bool EnsureSatContextLoaded()
+        {
+            if (!_satContext.essentialsLoaded)
+            {
+                Logger.Logger.Log($"Sat context {_satContext.name} is not loaded, loading", "ProcGen", this);
+                try
+                {
+                    _satContext.LoadData();
+                }
+                catch (Exception e)
+                {
+                    Logger.Logger.LogError($"Failed to load sat context {_satContext.name}: {e.Message}", "ProcGen", this);
+                    return false;
+                }
+#if UNITY_EDITOR
+                EditorUtility.SetDirty(_satContext);
+#endif
+            }
+            if (!_satContext.essentialsLoaded)
+            {
+                Logger.Logger.LogError($"Sat context {_satContext.name} is missing essential data " +
+                    $"(metadata: {_satContext.hasMetadata}, segmentation: {_satContext.hasSegmentation}, " +
+                    $"heightmap: {_satContext.hasHeightmap}, color: {_satContext.hasColor}), terminating", "ProcGen", this);
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Points the other generators at this generator's sat context and terrain config (and the trees at the houses).
+        /// </summary>
+        private void BindGenerators(HouseGenerator houseGenerator, TreeGenerator treeGenerator, RoadNetworkBuilder roadBuilder)
+        {
+            void LogBound(Component generator, bool changed)
+            {
+                if (!changed)
+                    return;
+                Logger.Logger.Log($"{generator.GetType().Name} now uses sat context {_satContext.name} and terrain config {_terrainConfig.name}", "ProcGen", generator);
+#if UNITY_EDITOR
+                EditorUtility.SetDirty(generator);
+#endif
+            }
+
+            if (houseGenerator != null)
+                LogBound(houseGenerator, houseGenerator.BindSources(_satContext, _terrainConfig));
+            if (treeGenerator != null)
+                LogBound(treeGenerator, treeGenerator.BindSources(_satContext, _terrainConfig, houseGenerator));
+            if (roadBuilder != null)
+                LogBound(roadBuilder, roadBuilder.BindSources(_satContext, _terrainConfig));
+        }
+
+        /// <summary>
+        /// Destroys everything generated under this object: buildings, trees, terrain chunks and road lines.
+        /// </summary>
+        public void DestroyGenerated()
+        {
+            var houseGenerator = GetComponent<HouseGenerator>();
+            if (houseGenerator != null)
+                houseGenerator.DestroyBuildings();
+            var treeGenerator = GetComponent<TreeGenerator>();
+            if (treeGenerator != null)
+                treeGenerator.DestroyTrees();
+
+            // Chunks and road lines are plain children.
+            for (int i = transform.childCount - 1; i >= 0; i--)
+            {
+                GameObject child = transform.GetChild(i).gameObject;
+                if (Application.isPlaying)
+                    Destroy(child);
+                else
+                    DestroyImmediate(child);
+            }
+            submeshBySegID.Clear();
+        }
+
+        /// <summary>
+        /// Deletes the pipeline json caches in the sat context folder, the sat images are kept.
+        /// </summary>
+        /// <returns>Number of deleted caches.</returns>
+        public int ClearPipelineCache()
+        {
+            if (_satContext == null)
+            {
+                Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
+                return 0;
+            }
+            int deleted = _satContext.ClearCache();
+            Logger.Logger.Log($"Cleared {deleted.ToString()} pipeline caches of {_satContext.name}", "ProcGen", this);
+            return deleted;
+        }
+
+        public SatContext.SatContext satContext => _satContext;
+
+        /// <summary>
+        /// Points the generator at a tile, used by <see cref="TerrainCoordinator.SpawnTile"/>.
+        /// <see cref="RunPipeline"/> passes both on to the other generators.
+        /// </summary>
+        public void BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig)
+        {
+            _satContext = satContext;
+            _terrainConfig = terrainConfig;
+        }
+
         public void CreateRandomMesh()
         {
             var tiles = _chunkGenerator.GetCoordsInRenderDistance(_camera.position);

@@ -1,14 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
-using ProceduralGeneration.SatContext;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
 namespace ProceduralGeneration.Editor
 {
     /// <summary>
-    /// Generates the LOD tile list of a <see cref="TerrainDataConfig"/> around a point (Radius Mode)
+    /// Generates the LOD tile list of a <see cref="TerrainConfig"/> around a point (Radius Mode)
     /// or along a flight path (Path Mode), and previews it on a minimap.
     /// </summary>
     public class FlightPreviewWindow : EditorWindow
@@ -20,9 +19,10 @@ namespace ProceduralGeneration.Editor
         private static readonly Color BackgroundColor = new Color(0.32f, 0.32f, 0.32f);
         private static readonly string[] ModeNames = { "Radius Mode", "Path Mode" };
         private static readonly string[] DownloadModeNames = { "Single", "Area" };
+        private static readonly int[] ResolutionValues = { 256, 512, 1024, 2048, 4096, 8192 };
+        private static readonly GUIContent[] ResolutionNames = Array.ConvertAll(ResolutionValues, r => new GUIContent($"{r} x {r}"));
 
-        [SerializeField] private GeometryConfig _geometry;
-        [SerializeField] private TerrainDataConfig _config;
+        [SerializeField] private TerrainConfig _config;
         [SerializeField] private FlightPreviewMinimap _minimap = new FlightPreviewMinimap();
         [SerializeField] private RadiusMode _radiusMode = new RadiusMode();
         [SerializeField] private PathMode _pathMode = new PathMode();
@@ -39,12 +39,11 @@ namespace ProceduralGeneration.Editor
         [NonSerialized] private Vector2 _settingsScroll;
         [NonSerialized] private Rect _toolbarRect;
         [NonSerialized] private Rect _legendRect;
-        [NonSerialized] private List<Task<SegmentationApiClient.TileRequestStatus>> _downloadRequests = new();
+        [NonSerialized] private readonly List<TileDownloadBatch> _downloads = new List<TileDownloadBatch>();
 
-        public TerrainDataConfig config => _config;
-        public GeometryConfig geometry => _geometry;
-        /// <summary>Mercator origin of the minimap, the geometry origin when there is one.</summary>
-        public DoubleVector2 origin => _geometry != null ? _geometry.origin : _config != null ? _config.center : DoubleVector2.zero;
+        public TerrainConfig config => _config;
+        /// <summary>Mercator origin of the minimap, the terrain config origin.</summary>
+        public DoubleVector2 origin => _config != null ? _config.origin : DoubleVector2.zero;
 
         private FlightPreviewModeBase activeMode =>
             _config != null && _config.mode == FlightPreviewMode.Path ? _pathMode : _radiusMode;
@@ -75,11 +74,10 @@ namespace ProceduralGeneration.Editor
 
         private void AutoAssignConfigs()
         {
-            var global = GlobalConfig.Instance;
-            if (_geometry == null)
-                _geometry = global != null && global.geometryConfig != null ? global.geometryConfig : FindAsset<GeometryConfig>();
-            if (_config == null)
-                _config = global != null && global.terrainDataConfig != null ? global.terrainDataConfig : FindAsset<TerrainDataConfig>();
+            if (_config != null)
+                return;
+            var coordinator = FindAnyObjectByType<TerrainCoordinator>();
+            _config = coordinator != null && coordinator.terrainConfig != null ? coordinator.terrainConfig : FindAsset<TerrainConfig>();
         }
 
         private static T FindAsset<T>() where T : UnityEngine.Object
@@ -191,21 +189,17 @@ namespace ProceduralGeneration.Editor
         {
             EditorGUILayout.Space(4);
             EditorGUI.BeginChangeCheck();
-            _geometry = (GeometryConfig)EditorGUILayout.ObjectField("Geometry Config", _geometry, typeof(GeometryConfig), false);
-            var config = (TerrainDataConfig)EditorGUILayout.ObjectField("Terrain Data Config", _config, typeof(TerrainDataConfig), false);
+            var config = (TerrainConfig)EditorGUILayout.ObjectField("Terrain Config", _config, typeof(TerrainConfig), false);
             if (EditorGUI.EndChangeCheck())
             {
                 _config = config;
                 OnConfigChanged();
             }
 
-            if (_geometry == null)
-                EditorGUILayout.HelpBox("No Geometry Config, the origin is unknown.", MessageType.Warning);
-
             if (_config == null)
             {
-                EditorGUILayout.HelpBox("Select or create a Terrain Data Config to store the tiles in.", MessageType.Info);
-                if (GUILayout.Button("Create Terrain Data Config"))
+                EditorGUILayout.HelpBox("Select or create a Terrain Config to store the tiles in.", MessageType.Info);
+                if (GUILayout.Button("Create Terrain Config"))
                     CreateConfig();
                 return;
             }
@@ -246,10 +240,7 @@ namespace ProceduralGeneration.Editor
 
             EditorGUILayout.Space();
             DrawSummary();
-            EditorGUILayout.Space();
-            DrawDownloadOptions();
-            DrawRequestsStatus();
-            
+
             bool settingsChanged = EditorGUI.EndChangeCheck();
             if (modeChanged || settingsChanged)
             {
@@ -258,55 +249,179 @@ namespace ProceduralGeneration.Editor
                     activeMode.OnActivated(this);
                 OnFocusChanged(false);
             }
+
+            // Outside the change check, download settings do not change the tiles.
+            EditorGUILayout.Space();
+            DrawDownloadOptions();
+            _serializedConfig.ApplyModifiedProperties();
+            DrawDownloads();
         }
+
         private void DrawDownloadOptions()
         {
             EditorGUILayout.LabelField("Load Tiles", EditorStyles.boldLabel);
             var downloadModeProperty = _serializedConfig.FindProperty("downloadMode");
             downloadModeProperty.enumValueIndex = GUILayout.Toolbar(downloadModeProperty.enumValueIndex, DownloadModeNames);
-            if (_config.downloadMode == DownloadMode.Single)
+            var downloadMode = (DownloadMode)downloadModeProperty.enumValueIndex;
+
+            var folderProperty = _serializedConfig.FindProperty("downloadDstFolder");
+            using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.PropertyField(_serializedConfig.FindProperty("downloadDstFolder"), new GUIContent("Download To (folder)"));
-                EditorGUILayout.PropertyField(_serializedConfig.FindProperty("tileToDownload"), new GUIContent("Tile To Download"));
+                EditorGUILayout.PropertyField(folderProperty, new GUIContent("Download To (folder)", folderProperty.tooltip));
+                if (GUILayout.Button("Browse", GUILayout.Width(60)))
+                {
+                    string selected = EditorUtility.OpenFolderPanel("Select Folder", folderProperty.stringValue, "");
+                    // Inside Assets the folder is kept project relative, so it works on every machine.
+                    if (!string.IsNullOrEmpty(selected))
+                        folderProperty.stringValue = TileDownloadBatch.ToAssetPath(selected) ?? selected;
+                }
             }
-            else if (_config.downloadMode == DownloadMode.Area)
+            string folder = folderProperty.stringValue;
+            bool hasFolder = !string.IsNullOrWhiteSpace(folder);
+            if (hasFolder && TileDownloadBatch.ToAssetPath(folder) == null)
+                EditorGUILayout.HelpBox("The folder is outside Assets, no SatContext assets are created.", MessageType.Warning);
+
+            bool canDownload = hasFolder;
+            if (downloadMode == DownloadMode.Single)
             {
-                //wip
+                EditorGUILayout.PropertyField(_serializedConfig.FindProperty("tileToDownload"), new GUIContent("Tile To Download"), true);
+                EditorGUILayout.PropertyField(_serializedConfig.FindProperty("colorZoom"), new GUIContent("Color Zoom"));
+                EditorGUILayout.PropertyField(_serializedConfig.FindProperty("heightZoom"), new GUIContent("Height Zoom"));
             }
-            
-            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("colorZoom"), new GUIContent("Color Zoom"));
-            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("heightZoom"), new GUIContent("Height Zoom"));
-            if (GUILayout.Button("Download Tiles"))
+            else
             {
-                var task = SegmentationApiClient.SubmitAsync(_config.tileToDownload, _config.colorZoom, _config.heightZoom, _config.downloadDstFolder);
-                _downloadRequests.Add(task);
+                var colorResolution = _serializedConfig.FindProperty("colorResolution");
+                var heightResolution = _serializedConfig.FindProperty("heightResolution");
+                EditorGUILayout.IntPopup(colorResolution, ResolutionNames, ResolutionValues, new GUIContent("Color Resolution", colorResolution.tooltip));
+                EditorGUILayout.IntPopup(heightResolution, ResolutionNames, ResolutionValues, new GUIContent("Height Resolution", heightResolution.tooltip));
+                EditorGUILayout.LabelField("Zoom per tile",
+                    $"color z+{TileDownloadBatch.ZoomOffset(colorResolution.intValue)}, height z+{TileDownloadBatch.ZoomOffset(heightResolution.intValue)}");
+                EditorGUILayout.PropertyField(_serializedConfig.FindProperty("skipExisting"));
+                EditorGUILayout.LabelField("Tiles", $"{_config.tiles.Count}, one z-x-y folder each");
+                canDownload &= _config.tiles.Count > 0;
+            }
+
+            using (new EditorGUI.DisabledScope(!canDownload))
+            {
+                string label = downloadMode == DownloadMode.Single ? "Download Tile" : $"Download {_config.tiles.Count} Tiles";
+                if (GUILayout.Button(label))
+                {
+                    // Take the values that were just edited too.
+                    _serializedConfig.ApplyModifiedProperties();
+                    StartDownload(downloadMode == DownloadMode.Single ? CreateSingleDownload() : CreateAreaDownload());
+                }
             }
         }
 
-        private void DrawRequestsStatus()
+        private TileDownloadBatch CreateSingleDownload()
         {
-            foreach (var request in _downloadRequests)
+            var job = new TileDownloadJob
             {
-                if (request.IsCompletedSuccessfully)
+                tile = _config.tileToDownload,
+                colorZoom = _config.colorZoom,
+                heightZoom = _config.heightZoom,
+                outputDir = Path.GetFullPath(_config.downloadDstFolder),
+            };
+            return new TileDownloadBatch($"Tile {job.name}", new List<TileDownloadJob> { job }, loadData: true, skipExisting: false, clampZooms: false);
+        }
+
+        private TileDownloadBatch CreateAreaDownload()
+        {
+            string root = Path.GetFullPath(_config.downloadDstFolder);
+            int colorOffset = TileDownloadBatch.ZoomOffset(_config.colorResolution);
+            int heightOffset = TileDownloadBatch.ZoomOffset(_config.heightResolution);
+            var jobs = new List<TileDownloadJob>(_config.tiles.Count);
+            foreach (var tile in _config.tiles)
+            {
+                jobs.Add(new TileDownloadJob
                 {
-                    EditorGUILayout.LabelField(
-                        $"Completed: {request.Result}"
-                    );
+                    tile = tile,
+                    colorZoom = tile.zoom + colorOffset,
+                    heightZoom = tile.zoom + heightOffset,
+                    outputDir = Path.Combine(root, TileDownloadBatch.FolderName(tile)),
+                });
+            }
+            // Only the metadata is loaded, the images of a large area would not fit in memory.
+            return new TileDownloadBatch($"Area, {jobs.Count} tiles", jobs, loadData: false, skipExisting: _config.skipExisting, clampZooms: true);
+        }
+
+        private void StartDownload(TileDownloadBatch batch)
+        {
+            batch.changed += () =>
+            {
+                // The window may be closed while downloading.
+                if (this != null)
+                    Repaint();
+            };
+            _downloads.Add(batch);
+            batch.Start();
+        }
+
+        private void DrawDownloads()
+        {
+            if (_downloads.Count == 0)
+                return;
+
+            EditorGUILayout.Space();
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("Downloads", EditorStyles.boldLabel);
+                using (new EditorGUI.DisabledScope(!_downloads.Exists(b => b.isFinished)))
+                {
+                    if (GUILayout.Button("Clear Finished", GUILayout.Width(100)))
+                        _downloads.RemoveAll(b => b.isFinished);
                 }
-                else if (request.IsFaulted)
+            }
+
+            foreach (var batch in _downloads)
+                DrawDownload(batch);
+        }
+
+        private static void DrawDownload(TileDownloadBatch batch)
+        {
+            EditorGUILayout.LabelField(batch.label, EditorStyles.miniBoldLabel);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                string status = batch.statusText;
+                Rect bar = EditorGUILayout.GetControlRect();
+                EditorGUI.ProgressBar(bar, batch.progress, status);
+                // Tooltip, the status is often longer than the bar.
+                GUI.Label(bar, new GUIContent("", status));
+                using (new EditorGUI.DisabledScope(batch.isFinished || batch.isCancelled))
                 {
-                    EditorGUILayout.LabelField("Failed");
+                    if (GUILayout.Button("Cancel", GUILayout.Width(60)))
+                        batch.Cancel();
                 }
-                else if (request.IsCanceled)
+            }
+
+            if (batch.jobs.Count == 1)
+            {
+                var context = batch.jobs[0].satContext;
+                if (context != null && GUILayout.Button("Select SatContext"))
                 {
-                    EditorGUILayout.LabelField("Cancelled");
+                    Selection.activeObject = context;
+                    EditorGUIUtility.PingObject(context);
                 }
-                else
+            }
+
+            int failed = batch.Count(TileDownloadState.Failed);
+            if (failed > 0 && batch.jobs.Count > 1)
+            {
+                batch.showFailed = EditorGUILayout.Foldout(batch.showFailed, $"Failed tiles ({failed})", true);
+                if (batch.showFailed)
                 {
-                    EditorGUILayout.LabelField($"Downloading... ({request.Status})");
+                    using (new EditorGUI.IndentLevelScope())
+                    {
+                        foreach (var job in batch.jobs)
+                        {
+                            if (job.state == TileDownloadState.Failed)
+                                EditorGUILayout.LabelField(new GUIContent(job.name), new GUIContent(job.message, job.message));
+                        }
+                    }
                 }
             }
         }
+
         private void DrawSummary()
         {
             EditorGUILayout.LabelField("Tiles", EditorStyles.boldLabel);
@@ -314,7 +429,7 @@ namespace ProceduralGeneration.Editor
             foreach (var (zoom, count) in _zoomCounts)
             {
                 Rect row = EditorGUILayout.GetControlRect();
-                EditorGUI.DrawRect(new Rect(row.x, row.y + 3, 12, row.height - 6), TerrainDataConfig.GetZoomColor(zoom, lod.minZoom, lod.maxZoom));
+                EditorGUI.DrawRect(new Rect(row.x, row.y + 3, 12, row.height - 6), TerrainConfig.GetZoomColor(zoom, lod.minZoom, lod.maxZoom));
                 row.xMin += 18;
                 EditorGUI.LabelField(row, $"Zoom {zoom}", $"{count} tiles  ({FormatMeters(WebMercator.TileSize(zoom) / WebMercator.MercatorPerMeter(origin.y))})");
             }
@@ -330,12 +445,10 @@ namespace ProceduralGeneration.Editor
 
         private void CreateConfig()
         {
-            string path = EditorUtility.SaveFilePanelInProject("Create Terrain Data Config", "TerrainDataConfig", "asset", "Where to save the Terrain Data Config.");
+            string path = EditorUtility.SaveFilePanelInProject("Create Terrain Config", "TerrainConfig", "asset", "Where to save the Terrain Config.");
             if (string.IsNullOrEmpty(path))
                 return;
-            var config = CreateInstance<TerrainDataConfig>();
-            if (_geometry != null)
-                config.center = _geometry.origin;
+            var config = CreateInstance<TerrainConfig>();
             AssetDatabase.CreateAsset(config, path);
             AssetDatabase.SaveAssets();
             _config = config;
@@ -442,7 +555,7 @@ namespace ProceduralGeneration.Editor
             {
                 if (!_minimap.GetTileRect(tile, out Rect r))
                     continue;
-                Color color = TerrainDataConfig.GetZoomColor(tile.zoom, lod.minZoom, lod.maxZoom);
+                Color color = TerrainConfig.GetZoomColor(tile.zoom, lod.minZoom, lod.maxZoom);
                 Color fill = color;
                 fill.a = 0.3f;
                 Color outline = color;
@@ -499,7 +612,7 @@ namespace ProceduralGeneration.Editor
                 GUI.Label(new Rect(_legendRect.x + 6, y, 110, 16), "No tiles", EditorStyles.whiteMiniLabel);
             foreach (var (zoom, count) in _zoomCounts)
             {
-                EditorGUI.DrawRect(new Rect(_legendRect.x + 6, y + 3, 10, 10), TerrainDataConfig.GetZoomColor(zoom, lod.minZoom, lod.maxZoom));
+                EditorGUI.DrawRect(new Rect(_legendRect.x + 6, y + 3, 10, 10), TerrainConfig.GetZoomColor(zoom, lod.minZoom, lod.maxZoom));
                 GUI.Label(new Rect(_legendRect.x + 22, y, 100, 16), $"z{zoom}  {count}", EditorStyles.whiteMiniLabel);
                 y += 16;
             }

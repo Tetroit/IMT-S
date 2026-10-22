@@ -39,6 +39,7 @@ namespace ProceduralGeneration.ImageProcessing
         public float Length;
     }
 
+    [Serializable]
     public class RoadGraph
     {
         public List<RoadNode> Nodes = new List<RoadNode>();

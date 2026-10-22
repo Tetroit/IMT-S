@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -66,6 +67,23 @@ namespace ProceduralGeneration.SatContext.Editor
                 GUILayout.Label("Heightmap Image");
                 GUILayout.Label(imgLoaded ? "loaded" : "not loaded", BoolStyle(imgLoaded), GUILayout.Width(70));
                 GUILayout.Label(imgLoaded ? $"{satContext.heightmapImage.shape[1]}x{satContext.heightmapImage.shape[0]}" : "-", GUILayout.Width(70));
+            }
+
+            // Pipeline caches written by TerrainGenerator.RunPipeline.
+            CacheRow("Houses Cache", satContext.housesCachePath);
+            CacheRow("Trees Cache", satContext.treesCachePath);
+            CacheRow("Roads Cache", satContext.roadsCachePath);
+        }
+
+        private void CacheRow(string label, string path)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                var file = new FileInfo(path);
+                bool cached = file.Exists;
+                GUILayout.Label(label);
+                GUILayout.Label(cached ? "cached" : "not cached", BoolStyle(cached), GUILayout.Width(70));
+                GUILayout.Label(cached ? EditorUtility.FormatBytes(file.Length) : "-", GUILayout.Width(70));
             }
         }
     }

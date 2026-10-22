@@ -29,6 +29,8 @@ namespace ProceduralGeneration.SatContext
         public string[] attributions;
         public string[] warnings;
         public string[] files;
+        /// <summary>Only written by the tile API (/api/tile-requests), empty for a full job output.</summary>
+        public ExportInfo export;
 
         public static SatMetadata Load(string filePath)
         {
@@ -187,6 +189,34 @@ namespace ProceduralGeneration.SatContext
             public long pixels;
             public double fraction;
             public double areaM2;
+        }
+
+        [Serializable]
+        public class ExportTile
+        {
+            public int z;
+            public int x;
+            public int y;
+        }
+
+        /// <summary>One file of a tile export, the file name is relative to the metadata's folder.</summary>
+        [Serializable]
+        public class ExportFile
+        {
+            public string file;
+            public int zoom;
+            public int widthPx;
+            public int heightPx;
+        }
+
+        [Serializable]
+        public class ExportInfo
+        {
+            public ExportTile tile;
+            public double[] boundsMercatorM;
+            public ExportFile color;
+            public ExportFile segmentation;
+            public ExportFile height;
         }
     }
     

@@ -161,7 +161,7 @@ GameObject:
   - component: {fileID: 275248951}
   - component: {fileID: 275248950}
   m_Layer: 0
-  m_Name: GlobalGeomConfig
+  m_Name: Terrain Coordinator
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -179,8 +179,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8645f2bdbeaed2547aa302ce8c88115a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.GeometryConfig
-  geometryConfig: {fileID: 11400000, guid: 1795752dcce748d19b7369cee986cf13, type: 2}
-  terrainDataConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
+  _terrainConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
+  _terrainGeneratorPrefab: {fileID: 4128708456705682046, guid: d9991b5c35a88364894ba660e534fefd, type: 3}
   drawTileGizmos: 1
 --- !u!4 &275248951
 Transform:
@@ -191,7 +191,7 @@ Transform:
   m_GameObject: {fileID: 275248949}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 545.06415, y: -0, z: 344.3717}
+  m_LocalPosition: {x: 0, y: -0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -310,7 +310,7 @@ MonoBehaviour:
   m_RequiresOpaqueTextureOption: 2
   m_CameraType: 0
   m_Cameras: []
-  m_RendererIndex: -1
+  m_RendererIndex: 1
   m_VolumeLayerMask:
     serializedVersion: 2
     m_Bits: 1
@@ -498,7 +498,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.22474156, y: 0.27958634, z: -0.06749133, w: 0.9310036}
+  m_LocalRotation: {x: 0.15689975, y: 0.32924178, z: -0.05557854, w: 0.9294587}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -637,376 +637,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1739054024
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1739054025}
-  - component: {fileID: 1739054028}
-  - component: {fileID: 1739054029}
-  - component: {fileID: 1739054031}
-  - component: {fileID: 1739054030}
-  m_Layer: 0
-  m_Name: Terrain
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1739054025
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1739054024}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 1
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1739054028
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1739054024}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f440754b81a2415f9fed2b42d621191a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.TerrainGenerator
-  _chunkGenerator: {fileID: 1047838492}
-  _camera: {fileID: 330585546}
-  _tilePrefab: {fileID: 407617576872590334, guid: 11c9314ad74284942842193f48affeb4, type: 3}
-  _satContext: {fileID: 11400000, guid: 8c77f1f20800e124f832cf23c159c49d, type: 2}
-  _geometryConfig: {fileID: 11400000, guid: 1795752dcce748d19b7369cee986cf13, type: 2}
-  _tileSubdivision: 4
-  _uvScale: 15.16
-  _pixelStep: 8
-  _defaultMaterial: {fileID: 2100000, guid: 6bf88f957ae9b6c49b07b8dcde222365, type: 2}
-  _segmentMaterials:
-  - key: 5
-    value: {fileID: 2100000, guid: 8e0114b9c7a77744888e63e19aa584e3, type: 2}
-  - key: 6
-    value: {fileID: 2100000, guid: ecf1216bb76c2444c9e9465c2f1157c5, type: 2}
-  - key: 3
-    value: {fileID: 2100000, guid: 009b45c19630c594c8a6bc5f86c09b09, type: 2}
-  - key: 4
-    value: {fileID: 2100000, guid: 009b45c19630c594c8a6bc5f86c09b09, type: 2}
-  - key: 8
-    value: {fileID: 2100000, guid: 3dc3494e057085f45aed07a24a955d28, type: 2}
-  _agricultureSegID: 7
-  _agricultureMaterials:
-  - key:
-      serializedVersion: 2
-      rgba: 5338768
-    value: {fileID: 2100000, guid: 05f62ae24b5339c4fbf274cffa634a4e, type: 2}
-  - key:
-      serializedVersion: 2
-      rgba: 2377511
-    value: {fileID: 2100000, guid: 2b6d64b92d51b0340b909c011883a5ea, type: 2}
-  - key:
-      serializedVersion: 2
-      rgba: 1973808
-    value: {fileID: 2100000, guid: 6bf88f957ae9b6c49b07b8dcde222365, type: 2}
-  - key:
-      serializedVersion: 2
-      rgba: 2903885
-    value: {fileID: 2100000, guid: 2b6d64b92d51b0340b909c011883a5ea, type: 2}
---- !u!114 &1739054029
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1739054024}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a82709e0e8584ce39cef8d9ad075f001, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.ImageProcessing.RoadNetworkBuilder
-  context: {fileID: 11400000, guid: 8c77f1f20800e124f832cf23c159c49d, type: 2}
-  roadID: 4
-  simplifyEpsilon: 1.5
-  minSpurLength: 5
-  minSubgraphSize: 500
-  junctionMergeRadius: 5
-  reconnectMinScore: 0.1
-  reconnectMaxDistanceFac: 100
-  smoothingIterations: 1
-  smoothingStrength: 0.323
-  _geometryConfig: {fileID: 11400000, guid: 1795752dcce748d19b7369cee986cf13, type: 2}
-  drawWithLineRenderers: 1
-  drawGizmos: 1
-  lineMaterial: {fileID: 2100000, guid: 47a12c35af66fc74085fc94bf20bea50, type: 2}
-  lineWidth: 0.15
---- !u!114 &1739054030
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1739054024}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0f8a2b0be1ac59e4ca53fe53c700b582, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.TreeGenerator
-  _satContext: {fileID: 11400000, guid: 8c77f1f20800e124f832cf23c159c49d, type: 2}
-  _geometryConfig: {fileID: 11400000, guid: 1795752dcce748d19b7369cee986cf13, type: 2}
-  _houseGenerator: {fileID: 1739054031}
-  _forestSegID: 5
-  _radius: 7.94
-  _margin: 3.01
-  _maxAttempts: 30
-  _seed: 0
-  _treePrefab: {fileID: 331871441677278545, guid: 42025a64334cf8e4b86ff9dd1abefc82, type: 3}
-  _gizmoColor: {r: 0.1, g: 0.8, b: 0.2, a: 1}
---- !u!114 &1739054031
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1739054024}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e68fd688fd1acb647b02448e6f7f4acd, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.HouseGenerator
-  _satContext: {fileID: 11400000, guid: 8c77f1f20800e124f832cf23c159c49d, type: 2}
-  _geometryConfig: {fileID: 11400000, guid: 1795752dcce748d19b7369cee986cf13, type: 2}
-  _buildingSegID: 8
-  _minPixels: 100
-  _diagonalAdjacency: 0
-  _buildingPrefab: {fileID: 5302622839992817879, guid: 93f286e8635818f43b8369a315ce475a, type: 3}
-  _floorRange: {x: 2, y: 2}
-  _seed: 0
-  _buildings:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
-  _gizmoColor: {r: 0.9, g: 0.2, b: 0.15, a: 1}
-  _gizmoHeight: 5
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -1016,5 +646,4 @@ SceneRoots:
   - {fileID: 832575519}
   - {fileID: 117770854}
   - {fileID: 1047838493}
-  - {fileID: 1739054025}
   - {fileID: 275248951}

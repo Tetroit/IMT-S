@@ -45,10 +45,10 @@ namespace ProceduralGeneration.Editor
         public override void OnActivated(FlightPreviewWindow window)
         {
             var config = window.config;
-            if (config != null && window.geometry != null && DoubleVector2.ApproximatelyEquals(config.center, DoubleVector2.zero))
+            if (config != null && DoubleVector2.ApproximatelyEquals(config.center, DoubleVector2.zero))
             {
                 Undo.RecordObject(config, "Center Flight Preview On Origin");
-                config.center = window.geometry.origin;
+                config.center = config.origin;
                 EditorUtility.SetDirty(config);
                 window.OnFocusChanged(false);
             }
@@ -63,15 +63,12 @@ namespace ProceduralGeneration.Editor
             double mercatorPerMeter = WebMercator.MercatorPerMeter(window.origin.y);
             EditorGUILayout.LabelField("Offset from origin", $"{offset.x / mercatorPerMeter:0.#} m, {offset.y / mercatorPerMeter:0.#} m");
 
-            using (new EditorGUI.DisabledScope(window.geometry == null))
+            if (GUILayout.Button("Center On Origin"))
             {
-                if (GUILayout.Button("Center On Origin"))
-                {
-                    Undo.RecordObject(window.config, "Center Flight Preview On Origin");
-                    window.config.center = window.geometry.origin;
-                    EditorUtility.SetDirty(window.config);
-                    window.OnFocusChanged(false);
-                }
+                Undo.RecordObject(window.config, "Center Flight Preview On Origin");
+                window.config.center = window.config.origin;
+                EditorUtility.SetDirty(window.config);
+                window.OnFocusChanged(false);
             }
             EditorGUILayout.HelpBox("Drag the yellow center handle on the minimap to move it.", MessageType.None);
         }
@@ -217,7 +214,7 @@ namespace ProceduralGeneration.Editor
                 MessageType.None);
         }
 
-        private static double PathLengthMeters(TerrainDataConfig config)
+        private static double PathLengthMeters(TerrainConfig config)
         {
             double length = 0;
             for (int i = 0; i < config.path.Count - 1; i++)
@@ -229,7 +226,7 @@ namespace ProceduralGeneration.Editor
             return length;
         }
 
-        private int HitNode(FlightPreviewMinimap minimap, TerrainDataConfig config, Vector2 position)
+        private int HitNode(FlightPreviewMinimap minimap, TerrainConfig config, Vector2 position)
         {
             // Last node first, it is drawn on top.
             for (int i = config.path.Count - 1; i >= 0; i--)
@@ -238,7 +235,7 @@ namespace ProceduralGeneration.Editor
             return -1;
         }
 
-        private int HitSegment(FlightPreviewMinimap minimap, TerrainDataConfig config, Vector2 position)
+        private int HitSegment(FlightPreviewMinimap minimap, TerrainConfig config, Vector2 position)
         {
             int best = -1;
             float bestDistance = SegmentPickDistance;

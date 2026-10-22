@@ -3,22 +3,22 @@ using UnityEngine;
 
 namespace ProceduralGeneration.Editor
 {
-    [CustomEditor(typeof(GeometryConfig))] 
-    public class GeometryConfigEditor : UnityEditor.Editor
+    [CustomEditor(typeof(TerrainConfig))]
+    public class TerrainConfigEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
             base.OnInspectorGUI();
-            GeometryConfig geometryConfig = (GeometryConfig)target;
+            TerrainConfig terrainConfig = (TerrainConfig)target;
             if (GUILayout.Button("Set Origin to context"))
             {
                 serializedObject.Update();
 
-                Undo.RecordObject(geometryConfig, "Set Geometry Origin");
+                Undo.RecordObject(terrainConfig, "Set Geometry Origin");
 
-                geometryConfig.SetOriginAtContextReference();
+                terrainConfig.SetOriginAtContextReference();
 
-                EditorUtility.SetDirty(geometryConfig);
+                EditorUtility.SetDirty(terrainConfig);
 
                 serializedObject.ApplyModifiedProperties();
             }

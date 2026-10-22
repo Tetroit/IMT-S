@@ -47,12 +47,11 @@ public class RoadNetworkBuilder : MonoBehaviour
     public float smoothingStrength = 0.25f;
 
     [Header("Placement")]
-    [Tooltip("Mercator -> Unity conversion. Leave empty to use the GlobalConfig in the scene.")]
-    [SerializeField] private GeometryConfig _geometryConfig;
-    public GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
+    [Tooltip("Mercator -> Unity conversion.")]
+    [SerializeField] private TerrainConfig _terrainConfig;
 
     // Unity units per pixel: mercator units per pixel * Unity units per mercator unit.
-    public float pixelToWorldScale => (float)(context.scale * geometryConfig.scale);
+    public float pixelToWorldScale => (float)(context.scale * _terrainConfig.scale);
 
     [Tooltip("If true, spawns a LineRenderer per edge at runtime.")]
     public bool drawWithLineRenderers = true;
@@ -71,23 +70,48 @@ public class RoadNetworkBuilder : MonoBehaviour
         // Build();
     }
 
+    /// <summary>
+    /// Points the builder at the given sources, used by <see cref="TerrainGenerator.RunPipeline"/>.
+    /// </summary>
+    /// <returns>True if anything changed.</returns>
+    public bool BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig)
+    {
+        bool changed = context != satContext || _terrainConfig != terrainConfig;
+        context = satContext;
+        _terrainConfig = terrainConfig;
+        return changed;
+    }
+
+    /// <summary>
+    /// Replaces the graph, e.g. with one loaded from a cache instead of <see cref="TryBuild"/>.
+    /// </summary>
+    public void SetGraph(RoadGraph graph)
+    {
+        Graph = graph;
+        if (drawWithLineRenderers)
+            SpawnLineRenderers();
+    }
+
     [ContextMenu("Build Road Graph")]
-    public void Build()
+    public void Build() => TryBuild();
+
+    /// <returns>False if the inputs are missing or extraction failed.</returns>
+    public bool TryBuild()
     {
         if (context == null)
         {
             Logger.Logger.LogError("RoadNetworkBuilder: context is empty.");
-            return;
+            return false;
         }
 
-        if (geometryConfig == null)
+        if (_terrainConfig == null)
         {
-            Logger.Logger.LogError("RoadNetworkBuilder: geometryConfig is empty, assign one or add a GlobalConfig to the scene.", "RoadGen", this);
-            return;
+            Logger.Logger.LogError("RoadNetworkBuilder: terrain config is empty.", "RoadGen", this);
+            return false;
         }
 
         // World position of the image's top-left corner (pixel 0,0).
-        DoubleVector2 mercatorOffset = context.GetWorldPos(geometryConfig.origin) * geometryConfig.scale;
+        DoubleVector2 mercatorOffset = context.GetWorldPos(_terrainConfig.origin) * _terrainConfig.scale;
         Graph = RoadGraphExtractor.ExtractFromTile(
             context,
             roadID,
@@ -101,11 +125,15 @@ public class RoadNetworkBuilder : MonoBehaviour
             reconnectMinScore,
             reconnectMaxDistanceFac,
             minSubgraphSize);
+        // Extraction logs its own error.
+        if (Graph == null)
+            return false;
 
         Logger.Logger.Log($"RoadNetworkBuilder: extracted {Graph.Nodes.Count} nodes, {Graph.Edges.Count} edges.", "RoadGen");
 
         if (drawWithLineRenderers)
             SpawnLineRenderers();
+        return true;
     }
 
     private void SpawnLineRenderers()
@@ -144,11 +172,11 @@ public class RoadNetworkBuilder : MonoBehaviour
     // Editor-time visualization even without pressing Play, once Graph has been built once.
     private void OnDrawGizmos()
     {
-        if (context != null && geometryConfig != null)
+        if (context != null && _terrainConfig != null)
         {
             Gizmos.color = Color.darkMagenta;
-            double[] mercatorBB = context.GetWorldSpaceBounds(geometryConfig.origin);
-            float s = (float)geometryConfig.scale;
+            double[] mercatorBB = context.GetWorldSpaceBounds(_terrainConfig.origin);
+            float s = (float)_terrainConfig.scale;
             Vector3[] imageCorners = new Vector3[4]
             {
                 new Vector3((float)mercatorBB[0] * s, 0, (float)mercatorBB[1] * s),

@@ -11,9 +11,7 @@ namespace ProceduralGeneration
     public class HouseGenerator : MonoBehaviour
     {
         [SerializeField] private SatContext.SatContext _satContext;
-        [Tooltip("Leave empty to use the GlobalConfig in the scene.")]
-        [SerializeField] private GeometryConfig _geometryConfig;
-        private GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
+        [SerializeField] private TerrainConfig _terrainConfig;
 
         [Header("Detection")]
         [Tooltip("Segmentation id of building pixels (\"building\" class).")]
@@ -42,6 +40,7 @@ namespace ProceduralGeneration
         /// <summary>
         /// Oriented bounding box of one house, in Unity space. The box sits on <see cref="center"/>.y.
         /// </summary>
+        [Serializable]
         public struct House
         {
             public Vector3 center;
@@ -89,28 +88,52 @@ namespace ProceduralGeneration
             }
             return false;
         }
+
+        /// <summary>
+        /// Points the generator at the given sources, used by <see cref="TerrainGenerator.RunPipeline"/>.
+        /// </summary>
+        /// <returns>True if anything changed.</returns>
+        public bool BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig)
+        {
+            bool changed = _satContext != satContext || _terrainConfig != terrainConfig;
+            _satContext = satContext;
+            _terrainConfig = terrainConfig;
+            return changed;
+        }
+
+        /// <summary>
+        /// Replaces the houses, e.g. with ones loaded from a cache instead of <see cref="FindHouses"/>.
+        /// </summary>
+        public void SetHouses(IEnumerable<House> houses)
+        {
+            _houses.Clear();
+            _houses.AddRange(houses);
+            _gizmoLines = null;
+        }
+
         /// <summary>
         /// Splits building pixels into connected components, discards the ones smaller than <see cref="_minPixels"/>
         /// and fits an oriented bounding box to each remaining one with PCA.
         /// </summary>
-        public void FindHouses()
+        /// <returns>False if the inputs are missing.</returns>
+        public bool FindHouses()
         {
             if (_satContext == null)
             {
                 Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
-                return;
+                return false;
             }
-            if (geometryConfig == null)
+            if (_terrainConfig == null)
             {
-                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
-                return;
+                Logger.Logger.LogError($"Terrain config is null", "ProcGen", this);
+                return false;
             }
             var segmentation = _satContext.segmentationImage;
             // Image data is not serialized, it is gone after a domain reload.
             if (segmentation == null || segmentation.data == null)
             {
                 Logger.Logger.LogError($"Segmentation image is not loaded", "ProcGen", this);
-                return;
+                return false;
             }
             var heightmap = _satContext.heightmapImage;
             bool hasHeightmap = heightmap != null && heightmap.data != null && heightmap.shape != null && heightmap.shape.Length >= 2;
@@ -121,10 +144,10 @@ namespace ProceduralGeneration
             int imageHeight = segmentation.height;
 
             // Same pixel -> world mapping as TerrainGenerator.CreateMeshForContext.
-            double[] bounds = _satContext.GetWorldSpaceBounds(geometryConfig.origin);
+            double[] bounds = _satContext.GetWorldSpaceBounds(_terrainConfig.origin);
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
-            float heightScale = geometryConfig.GetMeterScale();
+            float heightScale = _terrainConfig.GetMeterScale();
 
             int[] offsetsX = _diagonalAdjacency ? new[] { 1, -1, 0, 0, 1, 1, -1, -1 } : new[] { 1, -1, 0, 0 };
             int[] offsetsY = _diagonalAdjacency ? new[] { 0, 0, 1, -1, 1, -1, 1, -1 } : new[] { 0, 0, 1, -1 };
@@ -175,15 +198,15 @@ namespace ProceduralGeneration
                 {
                     // Image y goes down so unity z goes negative.
                     center = new Vector3(
-                        (float)((bounds[0] + center.x * pixelSizeX) * geometryConfig.scale),
+                        (float)((bounds[0] + center.x * pixelSizeX) * _terrainConfig.scale),
                         height,
-                        (float)((bounds[3] - center.y * pixelSizeY) * geometryConfig.scale)),
+                        (float)((bounds[3] - center.y * pixelSizeY) * _terrainConfig.scale)),
                     // Flipping y turns the image's clockwise angle into Unity's clockwise-from-above yaw,
                     // yaw a maps local x to (cos a, 0, -sin a), which is the image axis (cos a, sin a) with y flipped.
                     rotation = Quaternion.Euler(0, angle * Mathf.Rad2Deg, 0),
                     size = new Vector2(
-                        (float)(size.x * pixelSizeX * geometryConfig.scale),
-                        (float)(size.y * pixelSizeY * geometryConfig.scale)),
+                        (float)(size.x * pixelSizeX * _terrainConfig.scale),
+                        (float)(size.y * pixelSizeY * _terrainConfig.scale)),
                     pixelCount = pixels.Count,
                 });
             }
@@ -191,6 +214,7 @@ namespace ProceduralGeneration
             _gizmoLines = null;
 
             Logger.Logger.Log($"Found {_houses.Count.ToString()} houses, discarded {discarded.ToString()} smaller than {_minPixels} pixels", "ProcGen");
+            return true;
         }
 
         /// <summary>
@@ -269,9 +293,9 @@ namespace ProceduralGeneration
                 Logger.Logger.LogError($"Building prefab is null", "ProcGen", this);
                 return;
             }
-            if (geometryConfig == null)
+            if (_terrainConfig == null)
             {
-                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
+                Logger.Logger.LogError($"Terrain config is null", "ProcGen", this);
                 return;
             }
             if (_houses.Count == 0)
@@ -283,7 +307,7 @@ namespace ProceduralGeneration
             DestroyBuildings();
 
             // Building modules are in metres, the scale brings them to Unity units so the box size is passed in metres.
-            float meterScale = geometryConfig.GetMeterScale();
+            float meterScale = _terrainConfig.GetMeterScale();
             // Own generator, the drawers reseed UnityEngine.Random on every rebuild.
             var random = new System.Random(_seed);
             int minFloors = Mathf.Max(1, Mathf.Min(_floorRange.x, _floorRange.y));

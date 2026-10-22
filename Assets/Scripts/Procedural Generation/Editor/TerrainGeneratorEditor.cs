@@ -32,6 +32,7 @@ namespace ProceduralGeneration.Editor
                     GUILayout.Label("ID", GUILayout.Width(30));
                     GUILayout.Label("Name", GUILayout.Width(120));
                     GUILayout.Label("Material", GUILayout.Width(120));
+                    GUILayout.Label("UV", GUILayout.Width(120));
                 }
                 foreach (var (index, segClass) in _classInfos)
                 {
@@ -40,6 +41,7 @@ namespace ProceduralGeneration.Editor
                         GUILayout.Label(segClass.index.ToString(), GUILayout.Width(30));
                         GUILayout.Label(segClass.name, _classStyles[index], GUILayout.Width(120));
                         GUILayout.Label(terrainGenerator.GetMaterial(segClass.index).name, GUILayout.Width(120));
+                        GUILayout.Label(terrainGenerator.GetUV(segClass.index).ToString(), GUILayout.Width(120));
                     }
                 }
             }
@@ -56,9 +58,28 @@ namespace ProceduralGeneration.Editor
             }
             if (GUILayout.Button("Destroy children"))
             {
-                for (int i = terrainGenerator.transform.childCount - 1; i >= 0; i--)
+                terrainGenerator.DestroyGenerated();
+            }
+
+            GUILayout.Space(10);
+            if (GUILayout.Button("Run Full Pipeline"))
+            {
+                terrainGenerator.RunPipeline();
+                SceneView.RepaintAll();
+            }
+            if (GUILayout.Button("Clear Pipeline Cache"))
+            {
+                var satContext = terrainGenerator.satContext;
+                if (satContext == null)
+                    terrainGenerator.ClearPipelineCache();
+                else if (EditorUtility.DisplayDialog("Clear Pipeline Cache",
+                             $"Delete the cached pipeline files of {satContext.name}?\n\n" +
+                             string.Join("\n", satContext.cachePaths) +
+                             "\n\nSat images and metadata are kept.",
+                             "Delete", "Cancel"))
                 {
-                    DestroyImmediate(terrainGenerator.transform.GetChild(i).gameObject);
+                    terrainGenerator.ClearPipelineCache();
+                    AssetDatabase.Refresh();
                 }
             }
         }

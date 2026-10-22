@@ -8,9 +8,7 @@ namespace ProceduralGeneration
     public class TreeGenerator : MonoBehaviour
     {
         [SerializeField] private SatContext.SatContext _satContext;
-        [Tooltip("Leave empty to use the GlobalConfig in the scene.")]
-        [SerializeField] private GeometryConfig _geometryConfig;
-        private GeometryConfig geometryConfig => GlobalConfig.ResolveGeometry(_geometryConfig);
+        [SerializeField] private TerrainConfig _terrainConfig;
         [SerializeField] private HouseGenerator _houseGenerator;
 
         [Header("Distribution")]
@@ -40,27 +38,54 @@ namespace ProceduralGeneration
         public IReadOnlyList<Vector3> points => _points;
 
         /// <summary>
+        /// Points the generator at the given sources, used by <see cref="TerrainGenerator.RunPipeline"/>.
+        /// A null <paramref name="houseGenerator"/> keeps the current one.
+        /// </summary>
+        /// <returns>True if anything changed.</returns>
+        public bool BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig, HouseGenerator houseGenerator)
+        {
+            if (houseGenerator == null)
+                houseGenerator = _houseGenerator;
+            bool changed = _satContext != satContext || _terrainConfig != terrainConfig || _houseGenerator != houseGenerator;
+            _satContext = satContext;
+            _terrainConfig = terrainConfig;
+            _houseGenerator = houseGenerator;
+            return changed;
+        }
+
+        /// <summary>
+        /// Replaces the points, e.g. with ones loaded from a cache instead of <see cref="DistributePoints"/>.
+        /// </summary>
+        public void SetPoints(IEnumerable<Vector3> points)
+        {
+            _points.Clear();
+            _points.AddRange(points);
+            _gizmoLines = null;
+        }
+
+        /// <summary>
         /// Poisson disk sampling (Bridson) over forest segment pixels, points are at least <see cref="_radius"/> apart.
         /// Forest regions are disconnected, so every grid cell without a point is tried as a new seed.
         /// </summary>
-        public void DistributePoints()
+        /// <returns>False if the inputs are missing.</returns>
+        public bool DistributePoints()
         {
             if (_satContext == null)
             {
                 Logger.Logger.LogError($"Sat context is null", "ProcGen", this);
-                return;
+                return false;
             }
-            if (geometryConfig == null)
+            if (_terrainConfig == null)
             {
-                Logger.Logger.LogError($"Geometry config is null, assign one or add a GlobalConfig to the scene", "ProcGen", this);
-                return;
+                Logger.Logger.LogError($"Terrain config is null", "ProcGen", this);
+                return false;
             }
             var segmentation = _satContext.segmentationImage;
             // Image data is not serialized, it is gone after a domain reload.
             if (segmentation == null || segmentation.data == null)
             {
                 Logger.Logger.LogError($"Segmentation image is not loaded", "ProcGen", this);
-                return;
+                return false;
             }
             var heightmap = _satContext.heightmapImage;
             bool hasHeightmap = heightmap != null && heightmap.data != null && heightmap.shape != null && heightmap.shape.Length >= 2;
@@ -74,12 +99,12 @@ namespace ProceduralGeneration
             int imageHeight = segmentation.height;
 
             // Same pixel -> world mapping as TerrainGenerator.CreateMeshForContext.
-            double[] bounds = _satContext.GetWorldSpaceBounds(geometryConfig.origin);
+            double[] bounds = _satContext.GetWorldSpaceBounds(_terrainConfig.origin);
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
 
             // Mercator pixels are square, sampling runs in pixel space.
-            float radius = (float)(_radius / (pixelSizeX * geometryConfig.scale));
+            float radius = (float)(_radius / (pixelSizeX * _terrainConfig.scale));
             float radiusSqr = radius * radius;
 
             // Background grid, a cell holds at most one point since its diagonal is the radius.
@@ -90,7 +115,7 @@ namespace ProceduralGeneration
             if (gridCells > int.MaxValue)
             {
                 Logger.Logger.LogError($"Radius {_radius} is too small for a {imageWidth}x{imageHeight} image", "ProcGen", this);
-                return;
+                return false;
             }
             // Index into samples, -1 = empty.
             int[] grid = new int[gridCells];
@@ -113,14 +138,14 @@ namespace ProceduralGeneration
                 if (_houseGenerator == null)
                     return false;
                 var world = new Vector2(
-                    (float)((bounds[0] + p.x * pixelSizeX) * geometryConfig.scale),
-                    (float)((bounds[3] - p.y * pixelSizeY) * geometryConfig.scale));
+                    (float)((bounds[0] + p.x * pixelSizeX) * _terrainConfig.scale),
+                    (float)((bounds[3] - p.y * pixelSizeY) * _terrainConfig.scale));
                 return _houseGenerator.OverlapsHouses(world);
             }
 
             // Margin check probes 2 rings (margin and margin / 2) of 8 directions instead of a full disk,
             // thin gaps between probes can be missed.
-            float margin = (float)(_margin / (pixelSizeX * geometryConfig.scale));
+            float margin = (float)(_margin / (pixelSizeX * _terrainConfig.scale));
             var marginOffsets = new List<Vector2>();
             if (margin > 0)
             {
@@ -231,7 +256,7 @@ namespace ProceduralGeneration
                 }
             }
             
-            float heightScale = geometryConfig.GetMeterScale();
+            float heightScale = _terrainConfig.GetMeterScale();
 
             _points.Clear();
             foreach (var sample in samples)
@@ -239,18 +264,24 @@ namespace ProceduralGeneration
                 float height = hasHeightmap ? heightScale * SampleHeight(heightmap, sample.x / imageWidth, sample.y / imageHeight) : 0;
                 // Image y goes down so unity z goes negative.
                 _points.Add(new Vector3(
-                    (float)((bounds[0] + sample.x * pixelSizeX) * geometryConfig.scale),
+                    (float)((bounds[0] + sample.x * pixelSizeX) * _terrainConfig.scale),
                     height,
-                    (float)((bounds[3] - sample.y * pixelSizeY) * geometryConfig.scale)));
+                    (float)((bounds[3] - sample.y * pixelSizeY) * _terrainConfig.scale)));
             }
             
             _gizmoLines = null;
 
             Logger.Logger.Log($"Distributed {_points.Count.ToString()} tree points with radius {_radius}, margin {_margin}", "ProcGen");
+            return true;
         }
 
         public void GenerateTrees()
         {
+            if (_treePrefab == null)
+            {
+                Logger.Logger.LogError($"Tree prefab is null", "ProcGen", this);
+                return;
+            }
             foreach (var point in _points)
             {
                 var created = Instantiate(_treePrefab, point, Quaternion.identity);
@@ -264,12 +295,16 @@ namespace ProceduralGeneration
         {
             foreach (var tree in _trees)
             {
+                // Already gone if it was deleted by hand.
+                if (tree == null)
+                    continue;
 #if UNITY_EDITOR
                 DestroyImmediate(tree);
 #else
                 Destroy(tree);
 #endif
             }
+            _trees.Clear();
         }
         // Bilinear sample, u and v are in [0, 1] of the image (v goes down).
         internal static float SampleHeight(ImageProcessing.NpyArray heightmap, float u, float v)

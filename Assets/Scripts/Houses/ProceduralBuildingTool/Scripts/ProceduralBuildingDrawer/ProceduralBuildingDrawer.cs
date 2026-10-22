@@ -512,15 +512,10 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         int floorIDCount = startFloorID;
 
         List<Vector3> longVerts = new List<Vector3>();
-        List<Vector2> longUvs = new List<Vector2>();
         List<int> longTris = new List<int>();
 
         List<Vector3> shortVerts = new List<Vector3>();
-        List<Vector2> shortUvs = new List<Vector2>();
         List<int> shortTris = new List<int>();
-
-        float uScale = 1f;
-        float vScale = 1f;
 
         // Unity front faces are clockwise, their normal is cross(b - a, c - a). Every roof face points away from the
         // roof center, so the helpers below flip the winding themselves instead of relying on the corner order.
@@ -531,7 +526,8 @@ public class ProceduralBuildingDrawer : MonoBehaviour
             return Vector3.Dot(normal, outward) >= 0f;
         }
 
-        void AddTrapezoid(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+        // UVs are set per mesh in fillMesh, the roof is one plain cell of the sheet.
+        void AddTrapezoid(List<Vector3> verts, List<int> tris,
                   Vector3 baseA, Vector3 baseB, Vector3 topA, Vector3 topB)
         {
             if (!FacesOutward(baseA, baseB, topB))
@@ -542,21 +538,10 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
             int startIdx = verts.Count;
 
-            float uSlopeA = Vector3.Distance(baseA, topA) * uScale;
-            float uSlopeB = Vector3.Distance(baseB, topB) * uScale;
-            float uSlope = (uSlopeA + uSlopeB) * 0.5f;
-
-            float vBase = Vector3.Distance(baseA, baseB) * vScale;
-
             verts.Add(baseA);
             verts.Add(baseB);
             verts.Add(topB);
             verts.Add(topA);
-
-            uvs.Add(new Vector2(0f, 0f));
-            uvs.Add(new Vector2(0f, vBase));
-            uvs.Add(new Vector2(uSlope, vBase));
-            uvs.Add(new Vector2(uSlope, 0f));
 
             tris.Add(startIdx);
             tris.Add(startIdx + 1);
@@ -567,7 +552,7 @@ public class ProceduralBuildingDrawer : MonoBehaviour
             tris.Add(startIdx + 3);
         }
 
-        void AddTriangle(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+        void AddTriangle(List<Vector3> verts, List<int> tris,
                   Vector3 baseA, Vector3 baseB, Vector3 top)
         {
             if (!FacesOutward(baseA, baseB, top))
@@ -576,23 +561,17 @@ public class ProceduralBuildingDrawer : MonoBehaviour
             }
 
             int startIdx = verts.Count;
-            float tileSize = 1.0f;
-            float uBase = Vector3.Distance(baseA, baseB) / tileSize;
 
             verts.Add(baseA);
             verts.Add(baseB);
             verts.Add(top);
-
-            uvs.Add(new Vector2(0f, 0f));
-            uvs.Add(new Vector2(uBase, 0f));
-            uvs.Add(new Vector2(uBase * 0.5f, vScale));
 
             tris.Add(startIdx);
             tris.Add(startIdx + 1);
             tris.Add(startIdx + 2);
         }
 
-        void AddGable(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+        void AddGable(List<Vector3> verts, List<int> tris,
                       Vector3 leftBase, Vector3 rightBase, Vector3 apex)
         {
             if (!FacesOutward(leftBase, rightBase, apex))
@@ -602,17 +581,9 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
             int startIdx = verts.Count;
 
-            float width = Vector3.Distance(leftBase, rightBase);
-            float height = Mathf.Abs(apex.y - leftBase.y);
-            float vSpan = Mathf.Max(height, 0.01f) * vScale;
-
             verts.Add(leftBase);
             verts.Add(rightBase);
             verts.Add(apex);
-
-            uvs.Add(new Vector2(0f, 0f));
-            uvs.Add(new Vector2(width * vScale, 0f));
-            uvs.Add(new Vector2(width * 0.5f * vScale, vSpan));
 
             tris.Add(startIdx);
             tris.Add(startIdx + 1);
@@ -623,49 +594,53 @@ public class ProceduralBuildingDrawer : MonoBehaviour
         {
             if (sizeX >= sizeZ)
             {
-                AddTrapezoid(longVerts, longUvs, longTris, c0, c1, ridgeA, ridgeB);
-                AddTrapezoid(longVerts, longUvs, longTris, c2, c3, ridgeB, ridgeA);
-                AddTriangle(shortVerts, shortUvs, shortTris, c3, c0, ridgeA);
-                AddTriangle(shortVerts, shortUvs, shortTris, c1, c2, ridgeB);
+                AddTrapezoid(longVerts, longTris, c0, c1, ridgeA, ridgeB);
+                AddTrapezoid(longVerts, longTris, c2, c3, ridgeB, ridgeA);
+                AddTriangle(shortVerts, shortTris, c3, c0, ridgeA);
+                AddTriangle(shortVerts, shortTris, c1, c2, ridgeB);
             }
             else
             {
-                AddTrapezoid(longVerts, longUvs, longTris, c0, c3, ridgeA, ridgeB);
-                AddTrapezoid(longVerts, longUvs, longTris, c2, c1, ridgeB, ridgeA);
-                AddTriangle(shortVerts, shortUvs, shortTris, c1, c0, ridgeA);
-                AddTriangle(shortVerts, shortUvs, shortTris, c2, c3, ridgeB);
+                AddTrapezoid(longVerts, longTris, c0, c3, ridgeA, ridgeB);
+                AddTrapezoid(longVerts, longTris, c2, c1, ridgeB, ridgeA);
+                AddTriangle(shortVerts, shortTris, c1, c0, ridgeA);
+                AddTriangle(shortVerts, shortTris, c2, c3, ridgeB);
             }
         }
         else
         {
             if (sizeX >= sizeZ)
             {
-                AddTrapezoid(longVerts, longUvs, longTris, c0, c1, ridgeA, ridgeB);
-                AddTrapezoid(longVerts, longUvs, longTris, c2, c3, ridgeB, ridgeA);
+                AddTrapezoid(longVerts, longTris, c0, c1, ridgeA, ridgeB);
+                AddTrapezoid(longVerts, longTris, c2, c3, ridgeB, ridgeA);
 
                 Vector3 wGableApex = new Vector3(wallCorners[0].x, ridgeA.y, (wallCorners[0].z + wallCorners[3].z) * 0.5f);
-                AddGable(shortVerts, shortUvs, shortTris, wallCorners[0], wallCorners[3], wGableApex);
+                AddGable(shortVerts, shortTris, wallCorners[0], wallCorners[3], wGableApex);
 
                 Vector3 eGableApex = new Vector3(wallCorners[1].x, ridgeB.y, (wallCorners[1].z + wallCorners[2].z) * 0.5f);
-                AddGable(shortVerts, shortUvs, shortTris, wallCorners[1], wallCorners[2], eGableApex);
+                AddGable(shortVerts, shortTris, wallCorners[1], wallCorners[2], eGableApex);
             }
             else
             {
-                AddTrapezoid(longVerts, longUvs, longTris, c0, c3, ridgeA, ridgeB);
-                AddTrapezoid(longVerts, longUvs, longTris, c2, c1, ridgeB, ridgeA);
+                AddTrapezoid(longVerts, longTris, c0, c3, ridgeA, ridgeB);
+                AddTrapezoid(longVerts, longTris, c2, c1, ridgeB, ridgeA);
 
                 Vector3 sGableApex = new Vector3((wallCorners[0].x + wallCorners[1].x) * 0.5f, ridgeA.y, wallCorners[0].z);
-                AddGable(shortVerts, shortUvs, shortTris, wallCorners[1], wallCorners[0], sGableApex);
+                AddGable(shortVerts, shortTris, wallCorners[1], wallCorners[0], sGableApex);
 
                 Vector3 nGableApex = new Vector3((wallCorners[3].x + wallCorners[2].x) * 0.5f, ridgeB.y, wallCorners[3].z);
-                AddGable(shortVerts, shortUvs, shortTris, wallCorners[2], wallCorners[3], nGableApex);
+                AddGable(shortVerts, shortTris, wallCorners[2], wallCorners[3], nGableApex);
             }
         }
 
         // Reused between rebuilds, every building rebuilds on each inspector change.
-        roofMeshSideBottom = fillMesh(roofMeshSideBottom, longVerts, longUvs, longTris);
-        roofMeshSideTop = fillMesh(roofMeshSideTop, shortVerts, shortUvs, shortTris);
         roofMeshSideTopIsGable = (type == RoofType.AFrame);
+        // Same pick as the end material in renderMatrices.
+        Vector2 sideTopUV = roofMeshSideTopIsGable && buildingAsset.aFrameGableMaterial != null
+            ? buildingAsset.aFrameGableUV
+            : buildingAsset.roofSidesUV;
+        roofMeshSideBottom = fillMesh(roofMeshSideBottom, longVerts, buildingAsset.roofTopUV, longTris);
+        roofMeshSideTop = fillMesh(roofMeshSideTop, shortVerts, sideTopUV, shortTris);
 
         List<Vector3> baseRing = new List<Vector3> { c0, c1, c2, c3 };
         outlines[OutlineType.LastFloorBase] = new Outline(new List<List<Vector3>> { baseRing }, new List<List<Vector3>>());
@@ -924,8 +899,17 @@ public class ProceduralBuildingDrawer : MonoBehaviour
 
     public List<BuildingMeshInstances> getInstances() => instances;
 
-    static Mesh fillMesh(Mesh mesh, List<Vector3> verts, List<Vector2> uvs, List<int> tris)
+    /// <summary>
+    /// Every vertex gets the same <paramref name="uv"/>, so the mesh samples one cell of the sheet.
+    /// </summary>
+    static Mesh fillMesh(Mesh mesh, List<Vector3> verts, Vector2 uv, List<int> tris)
     {
+        var uvs = new List<Vector2>(verts.Count);
+        for (int i = 0; i < verts.Count; i++)
+        {
+            uvs.Add(uv);
+        }
+
         if (mesh == null)
         {
             mesh = new Mesh { indexFormat = IndexFormat.UInt32, hideFlags = HideFlags.HideAndDontSave };
