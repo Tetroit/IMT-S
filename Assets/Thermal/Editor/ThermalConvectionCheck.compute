@@ -4,10 +4,16 @@
 // They need ThermalEnvironment.windSpeed, ThermalSurface.windA and .windB, and
 // float ConvectiveCoefficient(float windA, float windB, float windSpeed, float dT); a contract the physics no longer
 // meets shows as compile errors, which the check reports with ThermalPhysics.hlsl's lines.
+//
+// The back side of thin objects (item 5, step 1) waits behind THERMAL_PHYSICS_BACKSIDE, as the wind once did behind
+// its own switch: until ThermalPhysics.hlsl defines it, its kernels compile to nothing and the check reports it as not
+// written yet. Once defined they need ThermalSurface.hasBack and float BackCoefficient(float normalY, float dT).
 
 #pragma kernel Echo
 #pragma kernel Coefficient
 #pragma kernel Balance
+#pragma kernel BackReady
+#pragma kernel BackSide
 
 #include "../ThermalPhysics.hlsl"
 
@@ -24,7 +30,7 @@ RWStructuredBuffer<float> _CoefficientOut;
 struct BalanceCase
 {
     float nx, ny, nz, alpha, eps, skyView, sunVis, skyDiffuseBroadband, windA, windB;
-    float airT, windSpeed, dni, dhi, ghi, albedo, sx, sy, sz;
+    float airT, windSpeed, dni, dhi, ghi, albedo, sx, sy, sz, hasBack;
 };
 StructuredBuffer<BalanceCase> _BalanceCases;
 RWStructuredBuffer<float2> _BalanceOut;     // the surface temperature, and h at it
@@ -49,7 +55,7 @@ void Echo(uint3 id : SV_DispatchThreadID)
     if (id.x < _Count)
     {
         BalanceCase c = _BalanceCases[id.x];
-        uint o = _CoefficientCount * 4 + id.x * 19;
+        uint o = _CoefficientCount * 4 + id.x * 20;
         _Echo[o + 0] = c.nx;
         _Echo[o + 1] = c.ny;
         _Echo[o + 2] = c.nz;
@@ -69,6 +75,7 @@ void Echo(uint3 id : SV_DispatchThreadID)
         _Echo[o + 16] = c.sx;
         _Echo[o + 17] = c.sy;
         _Echo[o + 18] = c.sz;
+        _Echo[o + 19] = c.hasBack;
     }
 }
 
@@ -97,6 +104,9 @@ void Balance(uint3 id : SV_DispatchThreadID)
     s.skyDiffuseBroadband = c.skyDiffuseBroadband;
     s.windA               = c.windA;
     s.windB               = c.windB;
+#if defined(THERMAL_PHYSICS_BACKSIDE)
+    s.hasBack             = c.hasBack;
+#endif
 
     ThermalEnvironment e = (ThermalEnvironment)0;
     e.airTemperature    = c.airT;
@@ -110,4 +120,37 @@ void Balance(uint3 id : SV_DispatchThreadID)
     EnergyBalance b = MakeBalance(float3(c.nx, c.ny, c.nz), s, e);
     float t = SurfaceTemperature(b);
     _BalanceOut[id.x] = float2(t, ConvectiveCoefficient(c.windA, c.windB, c.windSpeed, t - c.airT));
+}
+
+// ------------------------------------------------------------------ the back side of thin objects (item 5, step 1)
+RWStructuredBuffer<float> _BackReady;
+
+[numthreads(1, 1, 1)]
+void BackReady(uint3 id : SV_DispatchThreadID)
+{
+#if defined(THERMAL_PHYSICS_BACKSIDE)
+    _BackReady[0] = 1;
+#else
+    _BackReady[0] = 0;
+#endif
+}
+
+struct BackCase
+{
+    float normalY, dT;
+};
+StructuredBuffer<BackCase> _BackCases;
+RWStructuredBuffer<float> _BackOut;
+
+[numthreads(64, 1, 1)]
+void BackSide(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Count)
+        return;
+#if defined(THERMAL_PHYSICS_BACKSIDE)
+    BackCase c = _BackCases[id.x];
+    _BackOut[id.x] = BackCoefficient(c.normalY, c.dT);
+#else
+    _BackOut[id.x] = 0;
+#endif
 }

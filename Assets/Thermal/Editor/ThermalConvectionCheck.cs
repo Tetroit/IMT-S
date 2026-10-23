@@ -25,6 +25,13 @@ namespace IMT.Thermal
     /// a Newton step without dh/dT, 0/0 at equilibrium, one step, h frozen at the seed, dT reversed, and - found in
     /// review on 2026-10-20 - a derivative without h itself) and caught every one. Two of them only one case
     /// catches, so keep these: "zinc roof, calm day" (dh/dT) and "sky at air, calm" (0/0).
+    /// <para>The back side of thin objects (item 5, step 1, decided 2026-10-22): a surface with <c>hasBack</c> loses
+    /// heat through its back face to the air behind it, h_back (T - T_air), with h_back from ISO 6946's internal surface
+    /// resistances by the direction heat flows (10 up, 7.69 sideways, 5.88 down, blended in the heat flow's vertical
+    /// component). Checked: <c>BackCoefficient(normalY, dT)</c> in 25 cases, and 13 balance cases - roofs, walls, a
+    /// pitched roof, an underside, calm and night, the sky at air temperature - plus one without a back, which must
+    /// stay the old balance. IMTNS/backside_check_ref.py made the values and caught seven broken versions with them.
+    /// Until ThermalPhysics.hlsl defines THERMAL_PHYSICS_BACKSIDE these are reported as not written yet.</para>
     /// </summary>
     static class ThermalConvectionCheck
     {
@@ -44,8 +51,64 @@ namespace IMT.Thermal
         struct BalanceCase
         {
             public float nx, ny, nz, alpha, eps, skyView, sunVis, skyDiffuseBroadband, windA, windB;
-            public float airT, windSpeed, dni, dhi, ghi, albedo, sx, sy, sz;
+            public float airT, windSpeed, dni, dhi, ghi, albedo, sx, sy, sz, hasBack;
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct BackCase
+        {
+            public float normalY, dT;
+        }
+
+        // From IMTNS/backside_check_ref.py --emit, 2026-10-22: the same site and instants as above; a back face to the
+        // air behind, h_back by ISO 6946's surface resistances, blended in the heat flow's vertical component.
+        static readonly (string name, float nx, float ny, float nz, float alpha, float eps, float skyView, float sunVis,
+                         float skyDiffuseBroadband, float windA, float windB, float airT, float windSpeed, float dni,
+                         float dhi, float ghi, float albedo, float sx, float sy, float sz, float hasBack, double t)[] k_BackBalance =
+        {
+            ("steel roof, day", 0.0f, 1.0f, 0.0f, 0.7f, 0.9f, 1.0f, 1.0f, 0.794038f, 2.38f, 0.89f, 294.3654f, 4.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 1.0f, 320.8172358880696),
+            ("steel roof, night", 0.0f, 1.0f, 0.0f, 0.7f, 0.9f, 1.0f, 1.0f, 0.797141f, 2.38f, 0.89f, 286.4369f, 2.2f, 0.0f, 0.0f, 0.0f, 0.2f, 0.000279f, -0.251074f, 0.967968f, 1.0f, 282.8954079124418),
+            ("car roof, calm day", 0.0f, 1.0f, 0.0f, 0.9f, 0.9f, 1.0f, 1.0f, 0.794038f, 2.38f, 0.89f, 294.3654f, 0.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 1.0f, 340.6418263387525),
+            ("car roof, calm night", 0.0f, 1.0f, 0.0f, 0.9f, 0.9f, 1.0f, 1.0f, 0.797141f, 2.38f, 0.89f, 286.4369f, 0.0f, 0.0f, 0.0f, 0.0f, 0.2f, 0.000279f, -0.251074f, 0.967968f, 1.0f, 282.0974744749294),
+            ("bare zinc, calm day", 0.0f, 1.0f, 0.0f, 0.55f, 0.2f, 1.0f, 1.0f, 0.794038f, 2.38f, 0.89f, 294.3654f, 0.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 1.0f, 339.679480914844),
+            ("container wall, day", 0.0f, 0.0f, -1.0f, 0.6f, 0.9f, 0.5f, 1.0f, 0.446644f, 2.38f, 0.89f, 294.3654f, 4.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 1.0f, 309.0070818655414),
+            ("container wall, night", 0.0f, 0.0f, -1.0f, 0.6f, 0.9f, 0.5f, 1.0f, 0.447606f, 2.38f, 0.89f, 286.4369f, 2.2f, 0.0f, 0.0f, 0.0f, 0.2f, 0.000279f, -0.251074f, 0.967968f, 1.0f, 285.3988419611502),
+            ("pitched sheet roof, day", 0.0f, 0.7071067811865476f, -0.7071067811865476f, 0.7f, 0.9f, 0.8535533905932737f, 1.0f, 0.794038f, 2.38f, 0.89f, 294.3654f, 4.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 1.0f, 325.3458378963081),
+            ("pitched sheet roof, night", 0.0f, 0.7071067811865476f, -0.7071067811865476f, 0.7f, 0.9f, 0.8535533905932737f, 1.0f, 0.797141f, 2.38f, 0.89f, 286.4369f, 2.2f, 0.0f, 0.0f, 0.0f, 0.2f, 0.000279f, -0.251074f, 0.967968f, 1.0f, 285.4153422404969),
+            ("underside, day", 0.0f, -1.0f, 0.0f, 0.7f, 0.9f, 0.0f, 1.0f, 0.446644f, 2.38f, 0.89f, 294.3654f, 4.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 1.0f, 306.6760923874174),
+            ("underside, night", 0.0f, -1.0f, 0.0f, 0.7f, 0.9f, 0.0f, 1.0f, 0.447606f, 2.38f, 0.89f, 286.4369f, 2.2f, 0.0f, 0.0f, 0.0f, 0.2f, 0.000279f, -0.251074f, 0.967968f, 1.0f, 294.09777615053895),
+            ("sky at air, calm, back", 0.0f, 1.0f, 0.0f, 0.9f, 0.98f, 0.3f, 1.0f, 0.3f, 2.38f, 0.89f, 286.4369f, 0.0f, 0.0f, 0.0f, 0.0f, 0.2f, 0.000279f, -0.251074f, 0.967968f, 1.0f, 286.4368896484375),
+            ("steel roof, no back", 0.0f, 1.0f, 0.0f, 0.7f, 0.9f, 1.0f, 1.0f, 0.794038f, 2.38f, 0.89f, 294.3654f, 4.0f, 890.5695f, 100.699f, 882.952f, 0.2f, -0.000714f, 0.878374f, -0.477974f, 0.0f, 330.5922108948872),
+        };
+
+        static readonly (float normalY, float dT, double h)[] k_BackCoefficient =
+        {
+            (1.0f, 5.0f, 5.88235294117647),
+            (1.0f, 0.001f, 5.88235294117647),
+            (1.0f, 0.0f, 5.88235294117647),
+            (1.0f, -0.001f, 10.0),
+            (1.0f, -5.0f, 10.0),
+            (0.7071067690849304f, 5.0f, 6.412476436045374),
+            (0.7071067690849304f, 0.001f, 6.412476436045374),
+            (0.7071067690849304f, 0.0f, 6.412476436045374),
+            (0.7071067690849304f, -0.001f, 9.324092544042147),
+            (0.7071067690849304f, -5.0f, 9.324092544042147),
+            (0.0f, 5.0f, 7.692307692307692),
+            (0.0f, 0.001f, 7.692307692307692),
+            (0.0f, 0.0f, 7.692307692307692),
+            (0.0f, -0.001f, 7.692307692307692),
+            (0.0f, -5.0f, 7.692307692307692),
+            (-0.5f, 5.0f, 8.846153846153847),
+            (-0.5f, 0.001f, 8.846153846153847),
+            (-0.5f, 0.0f, 8.846153846153847),
+            (-0.5f, -0.001f, 6.78733031674208),
+            (-0.5f, -5.0f, 6.78733031674208),
+            (-1.0f, 5.0f, 10.0),
+            (-1.0f, 0.001f, 10.0),
+            (-1.0f, 0.0f, 10.0),
+            (-1.0f, -0.001f, 5.88235294117647),
+            (-1.0f, -5.0f, 5.88235294117647),
+        };
 
         // From IMTNS/convection_check_ref.py --emit, 2026-10-19. Inputs from Captures/thermal_replica at the test
         // scene's site on 21 June 2026, 11:42Z (day) and 23:42Z (night); U is the 10 m wind.
@@ -166,7 +229,9 @@ namespace IMT.Thermal
             {
                 Debug.LogError("[Convection] the check is written against ThermalEnvironment.windSpeed, " +
                                "ThermalSurface.windA and .windB, and float ConvectiveCoefficient(float windA, " +
-                               "float windB, float windSpeed, float dT): rename them here or there");
+                               "float windB, float windSpeed, float dT); with THERMAL_PHYSICS_BACKSIDE also " +
+                               "ThermalSurface.hasBack and float BackCoefficient(float normalY, float dT): rename " +
+                               "them here or there");
                 return;
             }
 
@@ -180,15 +245,21 @@ namespace IMT.Thermal
             var balanceCases = new BalanceCase[k_Balance.Length];
             for (int i = 0; i < k_Balance.Length; i++)
                 balanceCases[i] = ToCase(i, k_Balance[i].windSpeed);
-            int differ = Echo(shader, coefficientCases, balanceCases);
+            var backCases = new BalanceCase[k_BackBalance.Length];
+            for (int i = 0; i < k_BackBalance.Length; i++)
+                backCases[i] = ToBackCase(i);
+            var allCases = new BalanceCase[balanceCases.Length + backCases.Length];
+            balanceCases.CopyTo(allCases, 0);
+            backCases.CopyTo(allCases, balanceCases.Length);
+            int differ = Echo(shader, coefficientCases, allCases);
             if (differ > 0)
             {
                 Debug.LogError($"[Convection] the check's own buffers are wrong: {differ} fields came back changed " +
                                "from the GPU. The C# and HLSL case structs disagree; nothing below would mean anything");
                 return;
             }
-            Debug.Log($"[Convection] buffers: {coefficientCases.Length * 4 + balanceCases.Length * 19} fields of " +
-                      $"{coefficientCases.Length + balanceCases.Length} cases read back exactly");
+            Debug.Log($"[Convection] buffers: {coefficientCases.Length * 4 + allCases.Length * 20} fields of " +
+                      $"{coefficientCases.Length + allCases.Length} cases read back exactly");
 
             int failed = 0, checks = 0;
             void Report(bool ok, string line)
@@ -256,12 +327,66 @@ namespace IMT.Thermal
                     k_Balance[index].name, nan, wrongWay, biggest, largest, limit, ok ? "ok" : "FAIL"));
             }
 
+            // The back side of thin objects
+            string back;
+            if (!BackReady(shader))
+            {
+                back = "back side not written yet";
+                Debug.LogWarning("[Convection] back side skipped: ThermalPhysics.hlsl does not define " +
+                                 "THERMAL_PHYSICS_BACKSIDE yet. Add #define THERMAL_PHYSICS_BACKSIDE 1 once " +
+                                 "ThermalSurface.hasBack and BackCoefficient are in");
+            }
+            else
+            {
+                var backCoefficientCases = new BackCase[k_BackCoefficient.Length];
+                for (int i = 0; i < k_BackCoefficient.Length; i++)
+                    backCoefficientCases[i] = new BackCase { normalY = k_BackCoefficient[i].normalY, dT = k_BackCoefficient[i].dT };
+                float[] hb = RunBack(shader, backCoefficientCases);
+                double worstBackRelative = 0;
+                for (int i = 0; i < k_BackCoefficient.Length; i++)
+                {
+                    var c = k_BackCoefficient[i];
+                    double off = hb[i] - c.h;
+                    bool ok = Math.Abs(off) <= Math.Max(k_CoefficientAbsolute, k_CoefficientRelative * c.h);
+                    worstBackRelative = Math.Max(worstBackRelative, double.IsNaN(off) ? double.PositiveInfinity : Math.Abs(off) / c.h);
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "h_back  N.y {0,6:F3} dT {1,7:F3} K   {2,9:F5} ({3:+0.0e+0;-0.0e+0})   {4}",
+                        c.normalY, c.dT, hb[i], off, ok ? "ok" : "FAIL"));
+                }
+                Vector2[] tb = RunBalance(shader, backCases);
+                double worstBackT = 0;
+                for (int i = 0; i < k_BackBalance.Length; i++)
+                {
+                    var c = k_BackBalance[i];
+                    double off = tb[i].x - c.t;
+                    bool ok = Math.Abs(off) <= k_TemperatureTolerance;
+                    worstBackT = Math.Max(worstBackT, double.IsNaN(off) ? double.PositiveInfinity : Math.Abs(off));
+                    Report(ok, string.Format(CultureInfo.InvariantCulture,
+                        "T  {0,-26} U {1,5:F2} m/s {2}  {3,10:F4} K ({4:+0.0e+0;-0.0e+0})   {5}",
+                        c.name, c.windSpeed, c.hasBack > 0 ? "back   " : "no back", tb[i].x, off, ok ? "ok" : "FAIL"));
+                }
+                back = string.Format(CultureInfo.InvariantCulture,
+                    "back side: worst h_back {0:0.0e+0} relative, worst T {1:0.0e+0} K", worstBackRelative, worstBackT);
+            }
+
             string summary = string.Format(CultureInfo.InvariantCulture,
-                "worst h {0:0.0e+0} relative, worst T {1:0.0e+0} K", worstRelative, worstT);
+                "worst h {0:0.0e+0} relative, worst T {1:0.0e+0} K; {2}", worstRelative, worstT, back);
             if (failed == 0)
                 Debug.Log($"[Convection] all {checks} checks passed: {summary}");
             else
                 Debug.LogError($"[Convection] {failed} of {checks} checks FAILED: {summary}");
+        }
+
+        static BalanceCase ToBackCase(int index)
+        {
+            var c = k_BackBalance[index];
+            return new BalanceCase
+            {
+                nx = c.nx, ny = c.ny, nz = c.nz, alpha = c.alpha, eps = c.eps, skyView = c.skyView, sunVis = c.sunVis,
+                skyDiffuseBroadband = c.skyDiffuseBroadband, windA = c.windA, windB = c.windB, airT = c.airT,
+                windSpeed = c.windSpeed, dni = c.dni, dhi = c.dhi, ghi = c.ghi, albedo = c.albedo,
+                sx = c.sx, sy = c.sy, sz = c.sz, hasBack = c.hasBack,
+            };
         }
 
         static BalanceCase ToCase(int index, float windSpeed)
@@ -280,7 +405,7 @@ namespace IMT.Thermal
         static int Echo(ComputeShader shader, CoefficientCase[] coefficientCases, BalanceCase[] balanceCases)
         {
             int kernel = shader.FindKernel("Echo");
-            int count = coefficientCases.Length * 4 + balanceCases.Length * 19;
+            int count = coefficientCases.Length * 4 + balanceCases.Length * 20;
             using var coefficients = new ComputeBuffer(coefficientCases.Length, Marshal.SizeOf<CoefficientCase>());
             using var balances = new ComputeBuffer(balanceCases.Length, Marshal.SizeOf<BalanceCase>());
             using var echo = new ComputeBuffer(count, sizeof(float));
@@ -304,7 +429,7 @@ namespace IMT.Thermal
             foreach (var c in balanceCases)
                 foreach (float v in new[] { c.nx, c.ny, c.nz, c.alpha, c.eps, c.skyView, c.sunVis, c.skyDiffuseBroadband,
                                             c.windA, c.windB, c.airT, c.windSpeed, c.dni, c.dhi, c.ghi, c.albedo,
-                                            c.sx, c.sy, c.sz })
+                                            c.sx, c.sy, c.sz, c.hasBack })
                     sent[k++] = v;
 
             int differ = 0;
@@ -345,6 +470,34 @@ namespace IMT.Thermal
             shader.SetInt("_Count", cases.Length);
             shader.Dispatch(kernel, (cases.Length + 63) / 64, 1, 1);
             var result = new Vector2[cases.Length];
+            output.GetData(result);
+            return result;
+        }
+
+        static bool BackReady(ComputeShader shader)
+        {
+            int kernel = shader.FindKernel("BackReady");
+            using var ready = new ComputeBuffer(1, sizeof(float));
+            ready.SetData(new[] { -1f });
+            shader.SetBuffer(kernel, "_BackReady", ready);
+            shader.Dispatch(kernel, 1, 1, 1);
+            var result = new float[1];
+            ready.GetData(result);
+            return result[0] == 1f;
+        }
+
+        static float[] RunBack(ComputeShader shader, BackCase[] cases)
+        {
+            int kernel = shader.FindKernel("BackSide");
+            using var input = new ComputeBuffer(cases.Length, Marshal.SizeOf<BackCase>());
+            using var output = new ComputeBuffer(cases.Length, sizeof(float));
+            input.SetData(cases);
+            output.SetData(Filled(cases.Length, float.NaN));
+            shader.SetBuffer(kernel, "_BackCases", input);
+            shader.SetBuffer(kernel, "_BackOut", output);
+            shader.SetInt("_Count", cases.Length);
+            shader.Dispatch(kernel, (cases.Length + 63) / 64, 1, 1);
+            var result = new float[cases.Length];
             output.GetData(result);
             return result;
         }
