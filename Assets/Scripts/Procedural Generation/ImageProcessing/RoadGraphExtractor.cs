@@ -55,19 +55,23 @@ namespace ProceduralGeneration.ImageProcessing
         /// <param name="filePath">Absolute path to the segmented PNG.</param>
         /// <param name="roadColor">The color used for roads in the segmentation map.</param>
         /// <param name="colorTolerance">0-1 Euclidean RGB distance tolerance for matching roadColor.</param>
-        /// <param name="simplifyEpsilon">Douglas-Peucker epsilon in pixels. Higher = fewer points per edge.</param>
+        /// <param name="simplifyEpsilon">Douglas-Peucker epsilon in metres. Higher = fewer points per edge.</param>
         /// <param name="pixelToWorldScale">Optional uniform scale applied to all output positions.</param>
-        /// <param name="minSpurLength">Dangling dead-end edges shorter than this (pixels) are pruned as skeletonization noise. 0 disables.</param>
-        /// <param name="junctionMergeRadius">Junction nodes closer than this (pixels) are merged into one, collapsing dense intersection clusters. 0 disables.</param>
+        /// <param name="pixelsPerMeter">Source pixels per ground metre, converts every metre distance below to this tile's pixels.</param>
+        /// <param name="minSpurLength">Dangling dead-end edges shorter than this (metres) are pruned as skeletonization noise. 0 disables.</param>
+        /// <param name="junctionMergeRadius">Junction nodes closer than this (metres) are merged into one, collapsing dense intersection clusters. 0 disables.</param>
         /// <param name="smoothingIterations">Number of Chaikin corner-cutting passes applied to each simplified edge. 0 disables smoothing.</param>
         /// <param name="smoothingStrength">Chaikin cut ratio per iteration, in (0, 0.5). Higher = more rounded corners.</param>
         /// <param name="reconnectMinScore">Minimum 0-1 match score required to bridge two dangling segment ends across a gap. 0 disables reconnection.</param>
+        /// <param name="reconnectMaxDistanceFac">Gaps are judged against the length of the roads they join times this factor, unitless.</param>
+        /// <param name="minSubgraphSize">Disconnected road networks with a total length below this (metres) are pruned.</param>
         public static RoadGraph ExtractFromTile(
             SatContext.SatContext context,
             int roadID,
             float simplifyEpsilon = 1.5f,
             float pixelToWorldScale = 1f,
             DoubleVector2 mercatorOffset = default,
+            float pixelsPerMeter = 1f,
             float minSpurLength = 0f,
             float junctionMergeRadius = 0f,
             int smoothingIterations = 0,
@@ -77,6 +81,15 @@ namespace ProceduralGeneration.ImageProcessing
             float minSubgraphSize = 5f)
         {
             var segImg = context.segmentationImage;
+
+            // The graph is built and cleaned in pixel space, tiles of different zoom have
+            // different pixel sizes, so the metre distances are converted per tile.
+            simplifyEpsilon *= pixelsPerMeter;
+            minSpurLength *= pixelsPerMeter;
+            junctionMergeRadius *= pixelsPerMeter;
+            minSubgraphSize *= pixelsPerMeter;
+            Logger.Logger.Log($"{pixelsPerMeter} px/m: spur {minSpurLength} px, merge {junctionMergeRadius} px, subgraph {minSubgraphSize} px, simplify {simplifyEpsilon} px", "RoadGen");
+
             try
             {
                 bool[,] mask;
@@ -101,7 +114,7 @@ namespace ProceduralGeneration.ImageProcessing
                 using (new ProfilerMarker("Prune short").Auto())
                     PruneShortSpurs(live, minSpurLength); // merging can expose new tiny dangling connectors
                 using (new ProfilerMarker("Reconnect nodes").Auto())
-                    ReconnectNodes(live, reconnectMinScore, reconnectMaxDistanceFac, junctionMergeRadius); // bridge gaps left in otherwise-continuous roads
+                    ReconnectNodes(live, reconnectMinScore, reconnectMaxDistanceFac); // bridge gaps left in otherwise-continuous roads
                 using (new ProfilerMarker("Collapse straight nodes").Auto())
                     CollapseStraightNodes(live); // fold pass-through nodes left by pruning/merging/reconnecting into their edges
                 using (new ProfilerMarker("Prune subgraphs").Auto())
@@ -138,7 +151,7 @@ namespace ProceduralGeneration.ImageProcessing
             }
             catch (Exception e)
             {
-                Logger.Logger.LogError($"Road graph build failed at {e.Source}: {e.Message}");
+                Logger.Logger.LogError($"Road graph build failed at {e.StackTrace}: {e.Message}", "RoadGen");
             }
             return null;
         }
@@ -368,12 +381,15 @@ namespace ProceduralGeneration.ImageProcessing
             {
                 var path = new List<Vector2> { new Vector2(start.x, start.y) };
                 Vector2Int prev = start, cur = firstStep;
+                int maxSteps = w * h; // a simple path can't be longer than the image; guards against cycling forever
 
-                while (true)
+                while (path.Count <= maxSteps)
                 {
                     path.Add(new Vector2(cur.x, cur.y));
 
-                    if (nodePixels.Contains(cur) && cur != start)
+                    // Stop at any node, including start itself: closed loops (and junction
+                    // self-loops) come back around to start and would otherwise cycle forever.
+                    if (nodePixels.Contains(cur))
                         break;
 
                     consumed[cur.x, cur.y] = true;
@@ -628,7 +644,7 @@ namespace ProceduralGeneration.ImageProcessing
         /// cross another existing edge is discarded outright: roads may only
         /// meet at a shared node, never cross in open space.
         /// </summary>
-        private static void ReconnectNodes(LiveGraph graph, float minConnectionScore, float reconnectMaxDistanceFac, float nodeSpacing)
+        private static void ReconnectNodes(LiveGraph graph, float minConnectionScore, float reconnectMaxDistanceFac)
         {
             if (minConnectionScore <= 0f) return;
 
@@ -644,7 +660,8 @@ namespace ProceduralGeneration.ImageProcessing
             int count = openEnds.Count;
             if (count == 0) return;
 
-            float distanceThreshold = nodeSpacing > 0f ? reconnectMaxDistanceFac / nodeSpacing : reconnectMaxDistanceFac;
+            // Unitless, it multiplies edge lengths, dividing it by a pixel distance made the bridged gap size depend on the tile's zoom.
+            float distanceThreshold = reconnectMaxDistanceFac;
 
             // Best end-to-end (dangling-to-dangling) candidate per open end.
             var bestEndScore = new float[count];

@@ -14,10 +14,10 @@ namespace ProceduralGeneration
         [Header("Distribution")]
         [Tooltip("Segmentation id of forest pixels (\"tree\" class).")]
         [SerializeField] private int _forestSegID = 5;
-        [Tooltip("Minimum distance between two points, in Unity units.")]
+        [Tooltip("Minimum distance between two points, in metres.")]
         [Min(0.01f)]
         [SerializeField] private float _radius = 5f;
-        [Tooltip("Points closer than this to another segment are rejected, in Unity units. 0 disables.")]
+        [Tooltip("Points closer than this to another segment are rejected, in metres. 0 disables.")]
         [Min(0f)]
         [SerializeField] private float _margin = 2f;
         [Tooltip("Candidates tried around each point before it is retired (Bridson's k).")]
@@ -25,6 +25,8 @@ namespace ProceduralGeneration
         [SerializeField] private int _maxAttempts = 30;
         [SerializeField] private int _seed = 0;
         [SerializeField] private GameObject _treePrefab;
+        [Tooltip("Random uniform scale range of a tree, in metres per prefab unit.")]
+        [SerializeField] private Vector2 _sizeRange = new Vector2(5f, 10f);
         private List<GameObject> _trees = new List<GameObject>();
 
         [Header("Gizmos")]
@@ -104,7 +106,10 @@ namespace ProceduralGeneration
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
 
             // Mercator pixels are square, sampling runs in pixel space.
-            float radius = (float)(_radius / (pixelSizeX * _terrainConfig.scale));
+            // Distances are in metres, the meter scale brings them to Unity units and the pixel size to pixels.
+            float meterScale = _terrainConfig.GetMeterScale();
+            double unityPerPixel = pixelSizeX * _terrainConfig.scale;
+            float radius = (float)(_radius * meterScale / unityPerPixel);
             float radiusSqr = radius * radius;
 
             // Background grid, a cell holds at most one point since its diagonal is the radius.
@@ -145,7 +150,7 @@ namespace ProceduralGeneration
 
             // Margin check probes 2 rings (margin and margin / 2) of 8 directions instead of a full disk,
             // thin gaps between probes can be missed.
-            float margin = (float)(_margin / (pixelSizeX * _terrainConfig.scale));
+            float margin = (float)(_margin * meterScale / unityPerPixel);
             var marginOffsets = new List<Vector2>();
             if (margin > 0)
             {
@@ -255,13 +260,11 @@ namespace ProceduralGeneration
                     }
                 }
             }
-            
-            float heightScale = _terrainConfig.GetMeterScale();
 
             _points.Clear();
             foreach (var sample in samples)
             {
-                float height = hasHeightmap ? heightScale * SampleHeight(heightmap, sample.x / imageWidth, sample.y / imageHeight) : 0;
+                float height = hasHeightmap ? meterScale * SampleHeight(heightmap, sample.x / imageWidth, sample.y / imageHeight) : 0;
                 // Image y goes down so unity z goes negative.
                 _points.Add(new Vector3(
                     (float)((bounds[0] + sample.x * pixelSizeX) * _terrainConfig.scale),
@@ -271,7 +274,7 @@ namespace ProceduralGeneration
             
             _gizmoLines = null;
 
-            Logger.Logger.Log($"Distributed {_points.Count.ToString()} tree points with radius {_radius}, margin {_margin}", "ProcGen");
+            Logger.Logger.Log($"Distributed {_points.Count.ToString()} tree points with radius {_radius} m, margin {_margin} m", "ProcGen");
             return true;
         }
 
@@ -282,11 +285,18 @@ namespace ProceduralGeneration
                 Logger.Logger.LogError($"Tree prefab is null", "ProcGen", this);
                 return;
             }
+            if (_terrainConfig == null)
+            {
+                Logger.Logger.LogError($"Terrain config is null", "ProcGen", this);
+                return;
+            }
+            // Same as the buildings, the size is in metres and the meter scale brings it to Unity units.
+            float meterScale = _terrainConfig.GetMeterScale();
             foreach (var point in _points)
             {
                 var created = Instantiate(_treePrefab, point, Quaternion.identity);
                 created.transform.SetParent(transform);
-                float size = Random.value * 5 + 5;
+                float size = Mathf.Lerp(_sizeRange.x, _sizeRange.y, Random.value) * meterScale;
                 created.transform.localScale = new Vector3(size,size,size);
                 _trees.Add(created);
             }
@@ -338,11 +348,12 @@ namespace ProceduralGeneration
             // One vertical line per point, a line list stays fast for large point counts.
             if (_gizmoLines == null || _gizmoLines.Length != _points.Count * 2)
             {
+                float lineLength = _terrainConfig != null ? _radius * _terrainConfig.GetMeterScale() : _radius;
                 _gizmoLines = new Vector3[_points.Count * 2];
                 for (int i = 0; i < _points.Count; i++)
                 {
                     _gizmoLines[2 * i] = _points[i];
-                    _gizmoLines[2 * i + 1] = _points[i] + Vector3.up * _radius;
+                    _gizmoLines[2 * i + 1] = _points[i] + Vector3.up * lineLength;
                 }
             }
             Gizmos.color = _gizmoColor;

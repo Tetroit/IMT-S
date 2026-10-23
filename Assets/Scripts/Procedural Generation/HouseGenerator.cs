@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 #endif
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace ProceduralGeneration
 {
@@ -16,9 +17,10 @@ namespace ProceduralGeneration
         [Header("Detection")]
         [Tooltip("Segmentation id of building pixels (\"building\" class).")]
         [SerializeField] private int _buildingSegID = 8;
-        [Tooltip("Houses with fewer pixels than this are discarded as noise.")]
-        [Min(1)]
-        [SerializeField] private int _minPixels = 20;
+        [Tooltip("Houses with a smaller area than this, in square metres, are discarded as noise.")]
+        [Min(0f)]
+        [FormerlySerializedAs("_minPixels")]
+        [SerializeField] private float _minArea = 20f;
         [Tooltip("Diagonal pixels count as adjacent (8-connectivity), otherwise only edges do (4-connectivity).")]
         [SerializeField] private bool _diagonalAdjacency = false;
 
@@ -33,7 +35,7 @@ namespace ProceduralGeneration
 
         [Header("Gizmos")]
         [SerializeField] private Color _gizmoColor = new Color(0.9f, 0.2f, 0.15f);
-        [Tooltip("Height of the drawn boxes, in Unity units.")]
+        [Tooltip("Height of the drawn boxes, in metres.")]
         [Min(0f)]
         [SerializeField] private float _gizmoHeight = 5f;
 
@@ -112,7 +114,7 @@ namespace ProceduralGeneration
         }
 
         /// <summary>
-        /// Splits building pixels into connected components, discards the ones smaller than <see cref="_minPixels"/>
+        /// Splits building pixels into connected components, discards the ones smaller than <see cref="_minArea"/>
         /// and fits an oriented bounding box to each remaining one with PCA.
         /// </summary>
         /// <returns>False if the inputs are missing.</returns>
@@ -148,6 +150,9 @@ namespace ProceduralGeneration
             double pixelSizeX = (bounds[2] - bounds[0]) / imageWidth;
             double pixelSizeY = (bounds[3] - bounds[1]) / imageHeight;
             float heightScale = _terrainConfig.GetMeterScale();
+            // Tiles of different zoom have different pixel sizes, so the minimum area is in square metres.
+            double pixelArea = pixelSizeX * pixelSizeY * _terrainConfig.scale * _terrainConfig.scale / ((double)heightScale * heightScale);
+            int minPixels = Math.Max(1, (int)Math.Ceiling(_minArea / pixelArea));
 
             int[] offsetsX = _diagonalAdjacency ? new[] { 1, -1, 0, 0, 1, 1, -1, -1 } : new[] { 1, -1, 0, 0 };
             int[] offsetsY = _diagonalAdjacency ? new[] { 0, 0, 1, -1, 1, -1, 1, -1 } : new[] { 0, 0, 1, -1 };
@@ -185,7 +190,7 @@ namespace ProceduralGeneration
                     }
                 }
 
-                if (pixels.Count < _minPixels)
+                if (pixels.Count < minPixels)
                 {
                     discarded++;
                     continue;
@@ -213,7 +218,7 @@ namespace ProceduralGeneration
 
             _gizmoLines = null;
 
-            Logger.Logger.Log($"Found {_houses.Count.ToString()} houses, discarded {discarded.ToString()} smaller than {_minPixels} pixels", "ProcGen");
+            Logger.Logger.Log($"Found {_houses.Count.ToString()} houses, discarded {discarded.ToString()} smaller than {_minArea} m² ({minPixels.ToString()} pixels)", "ProcGen");
             return true;
         }
 
@@ -380,12 +385,12 @@ namespace ProceduralGeneration
             {
                 _gizmoLines = new Vector3[_houses.Count * 24];
                 var corners = new Vector3[8];
+                Vector3 up = Vector3.up * (_terrainConfig != null ? _gizmoHeight * _terrainConfig.GetMeterScale() : _gizmoHeight);
                 for (int i = 0; i < _houses.Count; i++)
                 {
                     House house = _houses[i];
                     Vector3 halfX = house.rotation * Vector3.right * (house.size.x / 2);
                     Vector3 halfZ = house.rotation * Vector3.forward * (house.size.y / 2);
-                    Vector3 up = Vector3.up * _gizmoHeight;
                     // Bottom ring 0-3, top ring 4-7.
                     corners[0] = house.center - halfX - halfZ;
                     corners[1] = house.center + halfX - halfZ;

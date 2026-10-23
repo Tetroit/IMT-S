@@ -18,22 +18,22 @@ public class RoadNetworkBuilder : MonoBehaviour
     public int roadID = 4;
 
     [Header("Simplification")]
-    [Tooltip("Douglas-Peucker epsilon in source pixels. Higher = straighter/fewer points.")]
+    [Tooltip("Douglas-Peucker epsilon in metres. Higher = straighter/fewer points.")]
     public float simplifyEpsilon = 1.5f;
 
     [Header("Cleanup")]
-    [Tooltip("Dangling dead-end edges shorter than this (source pixels) are pruned as skeletonization noise. 0 disables.")]
+    [Tooltip("Dangling dead-end edges shorter than this (metres) are pruned as skeletonization noise. 0 disables.")]
     public float minSpurLength = 4f;
-    [Tooltip("Some loose segments are redundant and will be pruned if their total length of edges is smaller to keep the graph clean")]
+    [Tooltip("Disconnected road networks with a total length below this (metres) are pruned to keep the graph clean.")]
     public float minSubgraphSize = 10f;
 
-    [Tooltip("Junction nodes closer than this (source pixels) are merged into one, collapsing dense intersection clusters. 0 disables.")]
+    [Tooltip("Junction nodes closer than this (metres) are merged into one, collapsing dense intersection clusters. 0 disables.")]
     public float junctionMergeRadius = 3f;
 
     [Tooltip("Minimum 0-1 match score required to bridge two dangling road ends across a gap (based on their distance, how close each lands to the other's straight-line extension, and how well their directions align). 0 disables reconnection.")]
     [Range(0f, 1f)]
     public float reconnectMinScore = 0f;
-    [Tooltip("How large can bridged gaps between roads be")]
+    [Tooltip("How large can bridged gaps between roads be, as a multiple of the length of the roads they join.")]
     [Min(0f)]
     public float reconnectMaxDistanceFac = 16f;
 
@@ -52,6 +52,9 @@ public class RoadNetworkBuilder : MonoBehaviour
 
     // Unity units per pixel: mercator units per pixel * Unity units per mercator unit.
     public float pixelToWorldScale => (float)(context.scale * _terrainConfig.scale);
+
+    // Source pixels per ground metre, the cleanup distances are in metres so they mean the same on every tile zoom.
+    public float pixelsPerMeter => _terrainConfig.GetMeterScale() / pixelToWorldScale;
 
     [Tooltip("If true, spawns a LineRenderer per edge at runtime.")]
     public bool drawWithLineRenderers = true;
@@ -118,6 +121,7 @@ public class RoadNetworkBuilder : MonoBehaviour
             simplifyEpsilon,
             pixelToWorldScale,
             mercatorOffset,
+            pixelsPerMeter,
             minSpurLength,
             junctionMergeRadius,
             smoothingIterations,

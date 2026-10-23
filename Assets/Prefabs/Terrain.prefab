@@ -117,7 +117,7 @@ MonoBehaviour:
   minSubgraphSize: 500
   junctionMergeRadius: 5
   reconnectMinScore: 0.1
-  reconnectMaxDistanceFac: 100
+  reconnectMaxDistanceFac: 20
   smoothingIterations: 1
   smoothingStrength: 0.323
   _terrainConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
@@ -164,9 +164,10 @@ MonoBehaviour:
   _terrainConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
   _houseGenerator: {fileID: 6724189402152913772}
   _forestSegID: 5
-  _radius: 7.94
-  _margin: 3.01
+  _radius: 7
+  _margin: 2
   _maxAttempts: 30
   _seed: 0
   _treePrefab: {fileID: 331871441677278545, guid: 42025a64334cf8e4b86ff9dd1abefc82, type: 3}
+  _sizeRange: {x: 5, y: 7}
   _gizmoColor: {r: 0.1, g: 0.8, b: 0.2, a: 1}
