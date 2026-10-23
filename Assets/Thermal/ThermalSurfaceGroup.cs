@@ -7,10 +7,13 @@ namespace IMT.Thermal
     /// h = √((0.84·|ΔT|^(1/3))² + (a·U10^b)²), and its group sets only a and b. Two kinds of group: objects standing
     /// in the wind, and the land surface, which is the ground and the vegetation on it, set by roughness and height.
     /// A road is land, not an object: to the air it is an extended flat surface, like a field.
+    /// Objects come in two (item 5, 2026-10-22): masonry, the default, and thin - sheet metal, glass, vehicles - whose
+    /// back face also trades heat with the air behind it.
     /// </summary>
     public enum ThermalSurfaceGroup
     {
-        [InspectorName("Object (houses, vehicles, walls, props)")] Object = 0,
+        [InspectorName("Object/Masonry (houses, walls, props)")] Object = 0,
+        [InspectorName("Object/Thin (sheet metal, glass, vehicles)")] ObjectThin = 1,
         [InspectorName("Ground/Paving")] Paving = 10,
         [InspectorName("Ground/Bare soil")] BareSoil = 11,
         [InspectorName("Ground/Grass")] Grass = 12,
@@ -45,9 +48,16 @@ namespace IMT.Thermal
                 case ThermalSurfaceGroup.Tree: return (20.320f, 1f);      // h 10 m
                 case ThermalSurfaceGroup.Forest: return (37.240f, 1f);    // h 20 m
 
-                // Objects: MoWiTT's windward fit against the 10 m wind, convection only (Yazdanian & Klems, 1994).
+                // Objects, masonry and thin alike: MoWiTT's windward fit against the 10 m wind, convection only
+                // (Yazdanian & Klems, 1994).
                 default: return (2.38f, 0.89f);
             }
         }
+
+        /// <summary>
+        /// 1 where the surface has a back face trading heat with the air behind it (item 5, step 1): thin objects,
+        /// whose sheet loses heat on both faces. 0 for everything else, which keeps the balance it had.
+        /// </summary>
+        public static float Back(ThermalSurfaceGroup group) => group == ThermalSurfaceGroup.ObjectThin ? 1f : 0f;
     }
 }

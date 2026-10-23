@@ -19,6 +19,8 @@ Shader "Thermal/Base"
         // so anything drawn without a ThermalMaterial - the override's own values - counts as one.
         _ThermalWindA ("Wind a (from the surface group)", Float) = 2.38
         _ThermalWindB ("Wind b (from the surface group)", Float) = 0.89
+        // 1 for a thin object's back face (item 5), set by ThermalMaterial from the surface group; 0 by default.
+        _ThermalBackside ("Back side (thin objects)", Float) = 0
     }
 
     SubShader
@@ -77,6 +79,7 @@ Shader "Thermal/Base"
             float4 _ThermalMapST;
             float _ThermalWindA;
             float _ThermalWindB;
+            float _ThermalBackside;
 
             Varyings vert(Attributes IN)
             {
@@ -136,6 +139,9 @@ Shader "Thermal/Base"
                 surf.skyDiffuseBroadband = skyD.y;
                 surf.windA = _ThermalWindA;
                 surf.windB = _ThermalWindB;
+            #if defined(THERMAL_PHYSICS_BACKSIDE)
+                surf.hasBack = _ThermalBackside;
+            #endif
                 
                 EnergyBalance b = MakeBalance(N, surf, env);
                 float surfaceTemperature = SurfaceTemperature(b);

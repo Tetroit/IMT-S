@@ -14,7 +14,8 @@ namespace IMT.Thermal
         [SerializeField, TextArea(1, 4)] public string m_Source;
         [Tooltip("How the surface meets the air, which sets how strongly the wind cools or warms it (item 6). " +
                  "Objects stand in the wind; Ground and Vegetation are the land surface, by roughness and height. " +
-                 "A road, square or car park is Ground/Paving. Anything without a ThermalMaterial counts as an Object.")]
+                 "A road, square or car park is Ground/Paving. Sheet metal, glass and vehicles are Object/Thin: their " +
+                 "back face loses heat too. Anything without a ThermalMaterial counts as Object/Masonry.")]
         [SerializeField] public ThermalSurfaceGroup m_SurfaceGroup = ThermalSurfaceGroup.Object;
 
         // D-010's MVP: the values painted per texel. Either map is optional; without one, the values above
@@ -50,6 +51,7 @@ namespace IMT.Thermal
         public static readonly int k_MapST = Shader.PropertyToID("_ThermalMapST");
         public static readonly int k_WindA = Shader.PropertyToID("_ThermalWindA");
         public static readonly int k_WindB = Shader.PropertyToID("_ThermalWindB");
+        public static readonly int k_Backside = Shader.PropertyToID("_ThermalBackside");
 
         [NonSerialized] MaterialPropertyBlock m_Block;
 
@@ -122,6 +124,7 @@ namespace IMT.Thermal
             (float windA, float windB) = ThermalSurfaceGroups.Wind(m_SurfaceGroup);
             block.SetFloat(k_WindA, windA);
             block.SetFloat(k_WindB, windB);
+            block.SetFloat(k_Backside, ThermalSurfaceGroups.Back(m_SurfaceGroup));
 
             // Maps: a missing one is switched off, not faked - the shader skips it, so an object without
             // maps renders exactly as before. The stand-in textures only keep the slots bound.
