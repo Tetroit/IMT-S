@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
@@ -154,6 +155,24 @@ namespace IMT.Thermal
         [NonSerialized] bool m_ClearSkyMissing;
         [NonSerialized] bool m_WarnedSunlight;
 
+        // Stored heat (item 5 step 2). The past samples, seconds ago: mixed 8, dense on a log scale to 3 h, then even
+        // to 24 h (Captures/history_options.py; decision log, item 5). Sample 0 is now.
+        static readonly double[] k_HistoryLags = { 0, 900, 3120, 10800, 25920, 41040, 56160, 71280 };
+        const int k_HistoryHours = 24;               // H is the mean over the last day, hourly
+        const double k_HistoryEmissivity = 0.95;     // in H's radiation part, one value for every group
+        const double k_Sigma = 5.670374419e-8;
+        static readonly int k_HistorySun = Shader.PropertyToID("_ThermalHistorySun");
+        static readonly int k_HistoryAir = Shader.PropertyToID("_ThermalHistoryAir");
+        static readonly int k_HistoryWeights = Shader.PropertyToID("_ThermalHistoryWeights");
+        // Fixed lengths: a global array keeps the length it was first set with.
+        [NonSerialized] readonly Vector4[] m_HistorySun = new Vector4[8];
+        [NonSerialized] readonly Vector4[] m_HistoryAir = new Vector4[8];
+        [NonSerialized] readonly Vector4[] m_HistoryWeightRows = new Vector4[2 * ThermalSurfaceGroups.HistoryGroups.Length];
+        [NonSerialized] readonly double[] m_DayAir = new double[k_HistoryHours];
+        [NonSerialized] readonly double[] m_DayWind = new double[k_HistoryHours];
+        [NonSerialized] bool m_HistoryMissing;
+        [NonSerialized] bool m_WarnedHistory;
+
         // simulatedUtc = m_ClockStart + (Time.timeAsDouble - m_Epoch) * m_ClockScale
         // Computed from the anchor rather than accumulated per frame, so the same elapsed time
         // always gives the same instant regardless of frame timing - D-008 depends on that.
@@ -244,6 +263,29 @@ namespace IMT.Thermal
 
         /// <summary>True while the clear-sky functions are not written and the old 900 W/m2 stands in.</summary>
         public bool SunlightIsPlaceholder => m_ClearSkyMissing;
+
+        /// <summary>How long ago each stored-heat sample is, seconds; the first, 0, is now.</summary>
+        public static IReadOnlyList<double> HistoryLagSeconds => k_HistoryLags;
+
+        /// <summary>
+        /// Each stored-heat group's H at the last update, W/m²K, in <see cref="ThermalSurfaceGroups.HistoryGroups"/>'
+        /// order.
+        /// </summary>
+        public double[] HistoryConductance { get; } = new double[ThermalSurfaceGroups.HistoryGroups.Length];
+
+        /// <summary>Each stored-heat group's weights at the last update, one per sample of HistoryLagSeconds.</summary>
+        public double[][] HistoryWeightsOf { get; } = NewWeightRows();
+
+        /// <summary>True while ThermalMath.HistoryWeights is not written and every group weighs now alone.</summary>
+        public bool HistoryIsPlaceholder => m_HistoryMissing;
+
+        static double[][] NewWeightRows()
+        {
+            var rows = new double[ThermalSurfaceGroups.HistoryGroups.Length][];
+            for (int r = 0; r < rows.Length; r++)
+                rows[r] = new double[k_HistoryLags.Length];
+            return rows;
+        }
 
         void OnEnable()
         {
@@ -384,6 +426,8 @@ namespace IMT.Thermal
                 // the balance agree by construction rather than by care.
                 light.transform.rotation = Quaternion.LookRotation(-sunDirection);
             }
+
+            PushHistory(utc, site, sunDirection, sunlight);
         }
 
         /// <summary>
@@ -586,6 +630,141 @@ namespace IMT.Thermal
                 m_WarnedNoSun = true;
             }
             return null;
+        }
+
+        // ---------------------------------------------------------------------- stored heat (item 5 step 2)
+
+        /// <summary>
+        /// The past samples and, per group that stores heat, its H and weights (ThermalMath.HistoryWeights). All pure
+        /// functions of the instant, like everything the balance reads (D-008); sample 0 is exactly what this push
+        /// sent. While HistoryWeights is not written every group weighs now alone, which is the steady state.
+        /// </summary>
+        void PushHistory(DateTime utc, SiteConditions site, Vector3 sunDirection, SolarIrradiance sunlight)
+        {
+            for (int k = 0; k < k_HistoryLags.Length; k++)
+            {
+                Vector3 direction = sunDirection;
+                SolarIrradiance light = sunlight;
+                double air = AirTemperature, wind = site.windSpeed;
+                if (k > 0)
+                {
+                    DateTime past = utc.AddSeconds(-k_HistoryLags[k]);
+                    SiteConditions s = ConditionsAt(past);
+                    SolarAngles sun = ThermalMath.Solar(s.latitude, s.longitude, past);
+                    direction = SunDirection(sun, m_NorthRotation);
+                    light = ComputeSunlight(sun, past, s);
+                    air = AirAt(past, s);
+                    wind = s.windSpeed;
+                }
+                m_HistorySun[k] = new Vector4(direction.x, direction.y, direction.z, (float)light.directNormal);
+                m_HistoryAir[k] = new Vector4((float)air, (float)wind, (float)light.diffuseHorizontal,
+                                              (float)light.globalHorizontal);
+            }
+
+            // The air and wind over the last day, hourly, for H.
+            for (int i = 0; i < k_HistoryHours; i++)
+            {
+                if (i == 0)
+                {
+                    m_DayAir[0] = AirTemperature;
+                    m_DayWind[0] = site.windSpeed;
+                    continue;
+                }
+                DateTime past = utc.AddHours(-i);
+                SiteConditions s = ConditionsAt(past);
+                m_DayAir[i] = AirAt(past, s);
+                m_DayWind[i] = s.windSpeed;
+            }
+
+            ThermalSurfaceGroup[] groups = ThermalSurfaceGroups.HistoryGroups;
+            for (int r = 0; r < groups.Length; r++)
+            {
+                // H, the surface's linearised conductance to its surroundings: radiation and the wind's convection,
+                // averaged over the day the weights look back on (measured with the day's mean, item 5).
+                (float a, float b) = ThermalSurfaceGroups.Wind(groups[r]);
+                double h = 0;
+                for (int i = 0; i < k_HistoryHours; i++)
+                {
+                    double t = m_DayAir[i];
+                    h += 4 * k_HistoryEmissivity * k_Sigma * t * t * t + a * Math.Pow(m_DayWind[i], b);
+                }
+                h /= k_HistoryHours;
+                HistoryConductance[r] = h;
+
+                double[] w = HistoryWeightsOf[r];
+                Weigh(ThermalSurfaceGroups.Effusivity(groups[r]), h, w);
+                m_HistoryWeightRows[2 * r] = new Vector4((float)w[0], (float)w[1], (float)w[2], (float)w[3]);
+                m_HistoryWeightRows[2 * r + 1] = new Vector4((float)w[4], (float)w[5], (float)w[6], (float)w[7]);
+            }
+
+            Shader.SetGlobalVectorArray(k_HistorySun, m_HistorySun);
+            Shader.SetGlobalVectorArray(k_HistoryAir, m_HistoryAir);
+            Shader.SetGlobalVectorArray(k_HistoryWeights, m_HistoryWeightRows);
+        }
+
+        /// <summary>
+        /// The air at a past instant, without UpdateAir's state: the same function, or the same stand-in while it is
+        /// missing. A function that throws has been reported by UpdateAir; the current air stands in.
+        /// </summary>
+        double AirAt(DateTime utc, SiteConditions site)
+        {
+            if (m_AirModelMissing)
+                return k_FallbackAirTemperature;
+            try
+            {
+                return ThermalMath.AirTemperature(utc, site.latitude, site.longitude, site.minK, site.maxK,
+                                                  site.a, site.b, site.c);
+            }
+            catch (Exception)
+            {
+                return AirTemperature;
+            }
+        }
+
+        /// <summary>
+        /// One group's weights from ThermalMath.HistoryWeights, held to its contract: finite and summing to 1. Anything
+        /// else - not written yet, a throw, a bad sum - weighs now alone, the steady state, and is reported once.
+        /// </summary>
+        void Weigh(double effusivity, double conductance, double[] weights)
+        {
+            if (!m_HistoryMissing)
+            {
+                try
+                {
+                    ThermalMath.HistoryWeights(effusivity, conductance, k_HistoryLags, weights);
+                    double sum = 0;
+                    bool finite = true;
+                    foreach (double w in weights)
+                    {
+                        sum += w;
+                        finite &= !double.IsNaN(w) && !double.IsInfinity(w);
+                    }
+                    if (finite && Math.Abs(sum - 1.0) < 1e-6)
+                        return;
+                    WarnHistory($"ThermalMath.HistoryWeights gave weights summing to {sum}, not 1");
+                }
+                catch (NotImplementedException)
+                {
+                    // Tried once per domain reload: writing the function recompiles, which clears this.
+                    m_HistoryMissing = true;
+                    Debug.LogWarning("[Thermal] ThermalMath.HistoryWeights is not written yet, so masonry and ground " +
+                                     "weigh now alone: the steady state, as before (item 5 step 2)");
+                }
+                catch (Exception e)
+                {
+                    WarnHistory($"ThermalMath.HistoryWeights threw {e.GetType().Name} ({e.Message})");
+                }
+            }
+            Array.Clear(weights, 0, weights.Length);
+            weights[0] = 1.0;
+        }
+
+        void WarnHistory(string problem)
+        {
+            if (m_WarnedHistory)
+                return;
+            Debug.LogWarning($"[Thermal] {problem} - masonry and ground weigh now alone until it is fixed");
+            m_WarnedHistory = true;
         }
 
         // ---------------------------------------------------------------------- LUT

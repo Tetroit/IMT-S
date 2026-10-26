@@ -21,6 +21,9 @@ Shader "Thermal/Base"
         _ThermalWindB ("Wind b (from the surface group)", Float) = 0.89
         // 1 for a thin object's back face (item 5), set by ThermalMaterial from the surface group; 0 by default.
         _ThermalBackside ("Back side (thin objects)", Float) = 0
+        // The surface group's row in the stored heat's weights (item 5 step 2), set by ThermalMaterial; -1 for a group
+        // that stays steady state. 0, masonry's, by default, as for the wind numbers.
+        _ThermalHistoryRow ("Stored heat row (from the surface group)", Float) = 0
     }
 
     SubShader
@@ -80,6 +83,7 @@ Shader "Thermal/Base"
             float _ThermalWindA;
             float _ThermalWindB;
             float _ThermalBackside;
+            float _ThermalHistoryRow;
 
             Varyings vert(Attributes IN)
             {
@@ -140,8 +144,18 @@ Shader "Thermal/Base"
                 surf.windA = _ThermalWindA;
                 surf.windB = _ThermalWindB;
                 surf.hasBack = _ThermalBackside;
-                
+
+            #if defined(THERMAL_PHYSICS_HISTORY)
+                // Masonry and ground answer to the past few hours, thin objects and vegetation to now (item 5 step 2).
+                // The row is one per draw, so every pixel of a draw takes the same branch.
+                EnergyBalance b;
+                if (_ThermalHistoryRow >= 0)
+                    b = MakeHistoryBalance(N, surf, MakeHistory((int)_ThermalHistoryRow));
+                else
+                    b = MakeBalance(N, surf, env);
+            #else
                 EnergyBalance b = MakeBalance(N, surf, env);
+            #endif
                 float surfaceTemperature = SurfaceTemperature(b);
 
                 float surfaceRadiance = ThermalRadiance(surfaceTemperature);

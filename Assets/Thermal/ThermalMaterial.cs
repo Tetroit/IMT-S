@@ -52,6 +52,7 @@ namespace IMT.Thermal
         public static readonly int k_WindA = Shader.PropertyToID("_ThermalWindA");
         public static readonly int k_WindB = Shader.PropertyToID("_ThermalWindB");
         public static readonly int k_Backside = Shader.PropertyToID("_ThermalBackside");
+        public static readonly int k_HistoryRow = Shader.PropertyToID("_ThermalHistoryRow");
 
         [NonSerialized] MaterialPropertyBlock m_Block;
 
@@ -125,6 +126,7 @@ namespace IMT.Thermal
             block.SetFloat(k_WindA, windA);
             block.SetFloat(k_WindB, windB);
             block.SetFloat(k_Backside, ThermalSurfaceGroups.Back(m_SurfaceGroup));
+            block.SetFloat(k_HistoryRow, ThermalSurfaceGroups.HistoryRow(m_SurfaceGroup));
 
             // Maps: a missing one is switched off, not faked - the shader skips it, so an object without
             // maps renders exactly as before. The stand-in textures only keep the slots bound.

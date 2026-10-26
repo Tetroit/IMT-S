@@ -83,6 +83,18 @@ namespace IMT.Thermal
                 (environment.SunlightIsPlaceholder ? "  (placeholder: flat 900, no diffuse)" : ""));
             EditorGUILayout.LabelField("Diffuse Horizontal", Watts(light.diffuseHorizontal));
             EditorGUILayout.LabelField("Global Horizontal", Watts(light.globalHorizontal));
+
+            // stored heat (item 5 step 2): per group, H and the weight of now and of the oldest sample
+            ThermalSurfaceGroup[] groups = ThermalSurfaceGroups.HistoryGroups;
+            for (int r = 0; r < groups.Length; r++)
+            {
+                double[] w = environment.HistoryWeightsOf[r];
+                EditorGUILayout.LabelField("Stored Heat, " + groups[r],
+                    string.Format(CultureInfo.InvariantCulture, "H {0:F2} W/m²K, now {1:F3}, {2:F1} h ago {3:F3}",
+                                  environment.HistoryConductance[r],
+                                  w[0], ThermalEnvironment.HistoryLagSeconds[w.Length - 1] / 3600.0, w[w.Length - 1]) +
+                    (environment.HistoryIsPlaceholder ? "  (not written: steady)" : ""));
+            }
         }
 
         // Nothing serialised changes as the clock runs, so without this the values would only

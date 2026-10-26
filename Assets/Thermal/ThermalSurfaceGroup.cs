@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace IMT.Thermal
@@ -59,5 +60,40 @@ namespace IMT.Thermal
         /// whose sheet loses heat on both faces. 0 for everything else, which keeps the balance it had.
         /// </summary>
         public static float Back(ThermalSurfaceGroup group) => group == ThermalSurfaceGroup.ObjectThin ? 1f : 0f;
+
+        /// <summary>
+        /// The groups that store heat (item 5 step 2), in the order of their rows in the shader's history weights.
+        /// Thin objects and vegetation have too little mass to matter (≤ 30 and 2 NETD) and stay steady state.
+        /// </summary>
+        public static readonly ThermalSurfaceGroup[] HistoryGroups =
+        {
+            ThermalSurfaceGroup.Object, ThermalSurfaceGroup.Paving, ThermalSurfaceGroup.BareSoil,
+            ThermalSurfaceGroup.Grass, ThermalSurfaceGroup.Crops,
+        };
+
+        /// <summary>The group's row in the shader's history weights, or -1 for a group that stays steady state.</summary>
+        public static int HistoryRow(ThermalSurfaceGroup group) => Array.IndexOf(HistoryGroups, group);
+
+        /// <summary>
+        /// The group's effusivity, e = √(kρc) in J m⁻² K⁻¹ s^-½, how readily its material takes up heat and gives it
+        /// back (item 5 step 2), or 0 for a group that stays steady state. One typical value per group (decided
+        /// 2026-10-26, option (a)): a value 30-40% off costs 15-90 NETD, against steady state's 194-596. Handbook
+        /// values, to be checked against the standard tables before citing; the measurement: decision log, item 5.
+        /// </summary>
+        public static double Effusivity(ThermalSurfaceGroup group)
+        {
+            switch (group)
+            {
+                // Masonry is brick walls and concrete roofs alike: the geometric mean of solid brick (k 0.7 W/m/K,
+                // ρc 1.512 MJ/m³K: 1029) and concrete (1.4, 2.024: 1683). Brick then errs by 63 NETD, concrete 118.
+                case ThermalSurfaceGroup.Object: return 1316.0;
+                case ThermalSurfaceGroup.Paving: return 1260.0;      // asphalt, 0.75 and 2.116
+                // Moist soil, 1.0 and 2.5; dry soil is about half. Grass and crops on the same soil.
+                case ThermalSurfaceGroup.BareSoil:
+                case ThermalSurfaceGroup.Grass:
+                case ThermalSurfaceGroup.Crops: return 1581.0;
+                default: return 0.0;
+            }
+        }
     }
 }
