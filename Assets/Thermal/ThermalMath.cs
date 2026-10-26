@@ -411,5 +411,23 @@ namespace IMT.Thermal
             double RH = Math.Min(1, E(dewPointK) / E(airTemperatureK));
             return RH;
         }
+
+        /// <summary>
+        /// Item 5 step 2, stored heat: how much each past sample counts, for a surface on a semi-infinite solid of
+        /// effusivity <paramref name="effusivity"/> (e = √(kρc), J m⁻² K⁻¹ s^-½) behind a surface conductance
+        /// <paramref name="conductance"/> (H, W m⁻² K⁻¹). <paramref name="lagSeconds"/>: how long ago each sample is,
+        /// ascending, the first 0 (now), all under a day. Fills <paramref name="weights"/>, the same length; they sum
+        /// to 1, so unchanging inputs give the steady state.
+        /// After its inputs step by 1, the surface has moved by R(t) = 1 − erfcx(β√t), β = H / e (Carslaw &amp;
+        /// Jaeger), and R's mean over [a, b] is 1 − (G(β√b) − G(β√a)) / (β²(b − a)), G(x) = erfcx(x) + 2x/√π − 1
+        /// (<see cref="ThermalSpecialFunctions.Erfcx"/>). The inputs are linear between samples, and after the last one
+        /// run back to sample 0's value at 24 h: every earlier day is taken to be the same as the last 24 h, so the
+        /// past folds onto one day. Sixty days of intervals, then the rest, 1 − R(60 d), shared by each sample's part
+        /// of the day. Decided 2026-10-26; Thermal → History Check holds it to IMTNS/history_check_ref.py.
+        /// </summary>
+        public static void HistoryWeights(double effusivity, double conductance, double[] lagSeconds, double[] weights)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

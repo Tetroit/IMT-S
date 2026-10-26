@@ -1,0 +1,88 @@
+// Thermal > History Check's kernels (item 5 step 2, stored heat): ThermalPhysics.hlsl's MakeHistoryBalance and
+// SurfaceTemperature, run on the GPU on cases with known answers. The cases and the answers are in
+// ThermalHistoryCheck.cs, which checks the weights themselves (C#) on the CPU.
+//
+// The physics waits behind THERMAL_PHYSICS_HISTORY, as the wind and the back side waited behind theirs: until
+// ThermalPhysics.hlsl defines it, Balance compiles to nothing and the check reports it as not written yet. Once defined
+// it needs THERMAL_HISTORY_SAMPLES (8), struct ThermalHistory { ThermalEnvironment past[]; float weight[]; } and
+// EnergyBalance MakeHistoryBalance(float3 N, ThermalSurface s, ThermalHistory h); a contract the physics does not meet
+// shows as compile errors, which the check reports with ThermalPhysics.hlsl's lines.
+
+#pragma kernel Echo
+#pragma kernel Ready
+#pragma kernel Balance
+
+#include "../ThermalPhysics.hlsl"
+
+// Floats only, one case after another: 11 for the surface (nx ny nz alpha eps skyView sunVis skyDiffuseBroadband
+// windA windB albedo), then 9 for each of the 8 samples (sx sy sz dni dhi ghi airT windSpeed weight).
+#define CASE_FLOATS 83
+#define SAMPLE_FLOATS 9
+
+uint _Count;
+StructuredBuffer<float> _Cases;
+RWStructuredBuffer<float> _BalanceOut;      // the surface temperature
+RWStructuredBuffer<float> _Ready;
+
+// The check's own plumbing, independent of the physics: every float read back, so a buffer fault shows here and not
+// as a wrong temperature.
+RWStructuredBuffer<float> _Echo;
+
+[numthreads(64, 1, 1)]
+void Echo(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count * CASE_FLOATS)
+        _Echo[id.x] = _Cases[id.x];
+}
+
+[numthreads(1, 1, 1)]
+void Ready(uint3 id : SV_DispatchThreadID)
+{
+#if defined(THERMAL_PHYSICS_HISTORY)
+    _Ready[0] = THERMAL_HISTORY_SAMPLES;
+#else
+    _Ready[0] = 0;
+#endif
+}
+
+[numthreads(64, 1, 1)]
+void Balance(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Count)
+        return;
+#if defined(THERMAL_PHYSICS_HISTORY) && THERMAL_HISTORY_SAMPLES == 8
+    uint o = id.x * CASE_FLOATS;
+
+    // Zeroed first: a field added later that the check does not know reads 0, not garbage.
+    ThermalSurface s = (ThermalSurface)0;
+    s.solarAbsorptivity   = _Cases[o + 3];
+    s.emissivity          = _Cases[o + 4];
+    s.skyViewFactor       = _Cases[o + 5];
+    s.sunVisibility       = _Cases[o + 6];
+    s.skyDiffuseBroadband = _Cases[o + 7];
+    s.windA               = _Cases[o + 8];
+    s.windB               = _Cases[o + 9];
+
+    ThermalHistory h;
+    [unroll]
+    for (int k = 0; k < THERMAL_HISTORY_SAMPLES; k++)
+    {
+        uint p = o + 11 + k * SAMPLE_FLOATS;
+        ThermalEnvironment e = (ThermalEnvironment)0;
+        e.sunDirection      = float3(_Cases[p], _Cases[p + 1], _Cases[p + 2]);
+        e.directNormal      = _Cases[p + 3];
+        e.diffuseHorizontal = _Cases[p + 4];
+        e.globalHorizontal  = _Cases[p + 5];
+        e.airTemperature    = _Cases[p + 6];
+        e.windSpeed         = _Cases[p + 7];
+        e.groundAlbedo      = _Cases[o + 10];
+        h.past[k] = e;
+        h.weight[k] = _Cases[p + 8];
+    }
+
+    EnergyBalance b = MakeHistoryBalance(float3(_Cases[o], _Cases[o + 1], _Cases[o + 2]), s, h);
+    _BalanceOut[id.x] = SurfaceTemperature(b);
+#else
+    _BalanceOut[id.x] = 0;
+#endif
+}
