@@ -30,8 +30,7 @@ namespace IMT.Thermal
     /// resistances by the direction heat flows (10 up, 7.69 sideways, 5.88 down, blended in the heat flow's vertical
     /// component). Checked: <c>BackCoefficient(normalY, dT)</c> in 25 cases, and 13 balance cases - roofs, walls, a
     /// pitched roof, an underside, calm and night, the sky at air temperature - plus one without a back, which must
-    /// stay the old balance. IMTNS/backside_check_ref.py made the values and caught seven broken versions with them.
-    /// Until ThermalPhysics.hlsl defines THERMAL_PHYSICS_BACKSIDE these are reported as not written yet.</para>
+    /// stay the old balance. IMTNS/backside_check_ref.py made the values and caught seven broken versions with them.</para>
     /// </summary>
     static class ThermalConvectionCheck
     {
@@ -229,9 +228,8 @@ namespace IMT.Thermal
             {
                 Debug.LogError("[Convection] the check is written against ThermalEnvironment.windSpeed, " +
                                "ThermalSurface.windA and .windB, and float ConvectiveCoefficient(float windA, " +
-                               "float windB, float windSpeed, float dT); with THERMAL_PHYSICS_BACKSIDE also " +
-                               "ThermalSurface.hasBack and float BackCoefficient(float normalY, float dT): rename " +
-                               "them here or there");
+                               "float windB, float windSpeed, float dT), ThermalSurface.hasBack and float " +
+                               "BackCoefficient(float normalY, float dT): rename them here or there");
                 return;
             }
 
@@ -329,14 +327,6 @@ namespace IMT.Thermal
 
             // The back side of thin objects
             string back;
-            if (!BackReady(shader))
-            {
-                back = "back side not written yet";
-                Debug.LogWarning("[Convection] back side skipped: ThermalPhysics.hlsl does not define " +
-                                 "THERMAL_PHYSICS_BACKSIDE yet. Add #define THERMAL_PHYSICS_BACKSIDE 1 once " +
-                                 "ThermalSurface.hasBack and BackCoefficient are in");
-            }
-            else
             {
                 var backCoefficientCases = new BackCase[k_BackCoefficient.Length];
                 for (int i = 0; i < k_BackCoefficient.Length; i++)
@@ -472,18 +462,6 @@ namespace IMT.Thermal
             var result = new Vector2[cases.Length];
             output.GetData(result);
             return result;
-        }
-
-        static bool BackReady(ComputeShader shader)
-        {
-            int kernel = shader.FindKernel("BackReady");
-            using var ready = new ComputeBuffer(1, sizeof(float));
-            ready.SetData(new[] { -1f });
-            shader.SetBuffer(kernel, "_BackReady", ready);
-            shader.Dispatch(kernel, 1, 1, 1);
-            var result = new float[1];
-            ready.GetData(result);
-            return result[0] == 1f;
         }
 
         static float[] RunBack(ComputeShader shader, BackCase[] cases)

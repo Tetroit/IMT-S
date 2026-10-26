@@ -1,6 +1,5 @@
 #ifndef THERMAL_PHYSICS_INCLUDED
 #define THERMAL_PHYSICS_INCLUDED
-#define THERMAL_PHYSICS_BACKSIDE 1   
 
 static const float SIGMA = 5.670374419e-8;
 static const float CALM_CONVECTION = 0.84;

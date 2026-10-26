@@ -139,9 +139,7 @@ Shader "Thermal/Base"
                 surf.skyDiffuseBroadband = skyD.y;
                 surf.windA = _ThermalWindA;
                 surf.windB = _ThermalWindB;
-            #if defined(THERMAL_PHYSICS_BACKSIDE)
                 surf.hasBack = _ThermalBackside;
-            #endif
                 
                 EnergyBalance b = MakeBalance(N, surf, env);
                 float surfaceTemperature = SurfaceTemperature(b);
