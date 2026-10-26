@@ -427,7 +427,52 @@ namespace IMT.Thermal
         /// </summary>
         public static void HistoryWeights(double effusivity, double conductance, double[] lagSeconds, double[] weights)
         {
-            throw new NotImplementedException();
+            double responseTime = Math.Pow(effusivity / conductance, 2);
+
+            Func<double, double> R = (t) =>
+            {
+                return 1 - ThermalSpecialFunctions.Erfcx(Math.Sqrt(t / responseTime));
+            };
+            
+            Func<double, double> G = (x) =>
+            {
+                return ThermalSpecialFunctions.Erfcx(x) + 2 * x/Math.Sqrt(Math.PI) - 1;
+            };
+            
+            var n = lagSeconds.Length;
+            Array.Clear(weights, 0, n);
+            
+            for (int day = 0; day < 60; day++)
+            {
+                for (int k = 0; k < n; k++)
+                {
+                    double a = 86400 * day + lagSeconds[k];
+                    double b;
+                    if (k == n - 1)
+                    {
+                        b = 86400 * day + 86400;
+                    }
+                    else
+                    {
+                        b = 86400 * day + lagSeconds[k + 1];
+                    }
+
+                    double mean = 1 - responseTime * (G(Math.Sqrt(b / responseTime)) -
+                                  G(Math.Sqrt(a / responseTime))) / (b - a);
+
+                    weights[k] += mean - R(a);
+                    weights[(k + 1) % n] += R(b) - mean;
+                }   
+            }
+            
+            double rest = 1 - R(60 * 86400);
+
+            for (int k = 0; k < n; k++)
+            {
+                double before = k > 0 ? lagSeconds[k - 1] : lagSeconds[n - 1] - 86400;
+                double after = k < n - 1 ? lagSeconds[k + 1] : 86400;
+                weights[k] += rest * (after - before)/(2*86400);
+            }
         }
     }
 }

@@ -1,5 +1,7 @@
 #ifndef THERMAL_PHYSICS_INCLUDED
 #define THERMAL_PHYSICS_INCLUDED
+#define THERMAL_PHYSICS_HISTORY 1
+#define THERMAL_HISTORY_SAMPLES 8
 
 static const float SIGMA = 5.670374419e-8;
 static const float CALM_CONVECTION = 0.84;
@@ -28,6 +30,12 @@ struct EnergyBalance           // reduced coefficients — what the solver actua
     float envT4;               // F*T_sky^4 + (1-F)*T_air^4    [K^4]
     float envTemperature;
     float windCoeff, airTemperature, hasBack, normalY;
+};
+
+struct ThermalHistory
+{
+    ThermalEnvironment past[THERMAL_HISTORY_SAMPLES]; 
+    float weight[THERMAL_HISTORY_SAMPLES];
 };
 
 float ConvectionFromWind(float windCoeff, float dT)
@@ -72,6 +80,41 @@ EnergyBalance MakeBalance(float3 N, ThermalSurface s, ThermalEnvironment e)
     b.hasBack = s.hasBack;
     b.normalY = N.y;
     return b;
+}
+
+EnergyBalance MakeHistoryBalance(float3 N, ThermalSurface s, ThermalHistory h)
+{
+    float direct = 0;
+    float diffuse = 0;
+    float global = 0;
+    float air4 = 0;
+    float wind = 0;
+    float air = 0;
+    
+    [unroll]
+    for (int k = 0; k < THERMAL_HISTORY_SAMPLES; k++)
+    {
+        ThermalEnvironment e = h.past[k];
+        float w = h.weight[k];
+        direct += w * e.directNormal * saturate(dot(N, e.sunDirection));
+        diffuse += w * e.diffuseHorizontal;
+        global += w * e.globalHorizontal;
+        air4 += w * e.airTemperature * e.airTemperature * e.airTemperature * e.airTemperature;
+        wind += w * e.windSpeed;
+        air += w * e.airTemperature;
+    }
+    
+    EnergyBalance e;
+    e.absorbedSolar = s.solarAbsorptivity * (direct * s.sunVisibility + diffuse * s.skyViewFactor + h.past[0].groundAlbedo * global * (1 - s.skyViewFactor));
+    e.envT4 = (1 - s.skyViewFactor + s.skyDiffuseBroadband) * air4;
+    e.envTemperature = sqrt(sqrt(e.envT4));
+    e.windCoeff = s.windA * pow(wind, s.windB);
+    e.airTemperature = air;
+    e.emissivity = s.emissivity;
+    e.hasBack = s.hasBack;
+    e.normalY = N.y;
+    
+    return e;
 }
 
 float SkyViewFactor(float3 N)
