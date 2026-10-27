@@ -156,7 +156,7 @@ Shader "Thermal/Base"
 
                 float surfaceRadiance = ThermalRadiance(surfaceTemperature);
 
-                float La = ThermalRadiance(env.airTemperature);
+                float La = _ThermalAirRadiance;      // the same for every pixel: once per frame, on the CPU
                 float reflected = (1 - F) * La + skyD.x * La;
 
                 return surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected;

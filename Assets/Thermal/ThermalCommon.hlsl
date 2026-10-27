@@ -5,10 +5,10 @@
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
 TEXTURE2D(_ThermalLut);
-SAMPLER(sampler_ThermalLut);
 float4 _ThermalLutParams;
 float3 _ThermalSunDirection;
 float _ThermalAirTemperature;
+float _ThermalAirRadiance;             // the LUT at the air temperature, interpolated once per frame on the CPU
 float _ThermalWindSpeed;               // m/s at 10 m, open terrain (item 6)
 float _ThermalDirectNormalIrradiance;
 float _ThermalDiffuseHorizontalIrradiance;
@@ -16,7 +16,7 @@ float _ThermalGlobalHorizontalIrradiance;
 float _ThermalGroundAlbedo;
 
 // D-013 sky tables, baked by ThermalEnvironment from ThermalMath.SkyEmissivity / SkyDiffuse.
-// Dimensionless: multiply by ThermalRadiance(T_air) for in-band radiance, by T_air^4 for the balance.
+// Dimensionless: multiply by _ThermalAirRadiance for in-band radiance, by T_air^4 for the balance.
 TEXTURE2D(_ThermalSkyView);
 SAMPLER(sampler_ThermalSkyView);
 TEXTURE2D(_ThermalSkyDiffuse);
@@ -36,11 +36,18 @@ ThermalEnvironment MakeEnvironment()
     return e;
 }
 
+// The LUT read exactly (item 10, 2026-10-27): its two neighbouring entries loaded unfiltered and blended in float. The
+// hardware's bilinear filter holds its weight in 8 bits, so a temperature on one of its 1/256 steps jumped a whole step
+// (0.0037 W/m²/sr, 0.11 NETD) whenever the GPU computed it one ulp apart from one frame to the next. ThermalEnvironment's
+// AirRadiance interpolates the same entries the same way on the CPU.
 float ThermalRadiance(float temperatureK)
 {
-    float u = LutCoord(temperatureK, _ThermalLutParams.x,
-                       _ThermalLutParams.y, _ThermalLutParams.z);
-    return SAMPLE_TEXTURE2D_LOD(_ThermalLut, sampler_ThermalLut, float2(u, 0.5), 0).r;
+    float x = saturate((temperatureK - _ThermalLutParams.x) / (_ThermalLutParams.y - _ThermalLutParams.x))
+            * (_ThermalLutParams.z - 1);
+    float i = min(floor(x), _ThermalLutParams.z - 2);
+    float a = LOAD_TEXTURE2D(_ThermalLut, int2(i, 0)).r;
+    float b = LOAD_TEXTURE2D(_ThermalLut, int2(i + 1, 0)).r;
+    return lerp(a, b, x - i);
 }
 
 // Sky emissivity looking along a normalised world direction. At or below the horizon this is the
@@ -62,7 +69,7 @@ float2 SkyDiffuse(float normalY)
 
 float SkyRadiance(float3 direction)
 {
-    return SkyViewEmissivity(direction) * ThermalRadiance(_ThermalAirTemperature);
+    return SkyViewEmissivity(direction) * _ThermalAirRadiance;
 }
 
 // Item 5 step 2, stored heat: the past samples ThermalEnvironment pushes each frame (sample 0 is now, the same values

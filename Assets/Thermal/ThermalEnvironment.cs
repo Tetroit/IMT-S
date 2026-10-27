@@ -97,6 +97,7 @@ namespace IMT.Thermal
         static readonly int k_Lut = Shader.PropertyToID("_ThermalLut");
         static readonly int k_LutParams = Shader.PropertyToID("_ThermalLutParams");
         static readonly int k_AirT = Shader.PropertyToID("_ThermalAirTemperature");
+        static readonly int k_AirRadiance = Shader.PropertyToID("_ThermalAirRadiance");
         static readonly int k_SunDir = Shader.PropertyToID("_ThermalSunDirection");
         static readonly int k_DirectNormal = Shader.PropertyToID("_ThermalDirectNormalIrradiance");
         static readonly int k_DiffuseHorizontal = Shader.PropertyToID("_ThermalDiffuseHorizontalIrradiance");
@@ -118,6 +119,7 @@ namespace IMT.Thermal
         // Built once, not per frame: the old per-frame build allocated a Texture2D every update and
         // never freed it, which a continuously running sim cannot survive.
         [NonSerialized] Texture2D m_Lut;
+        [NonSerialized] float[] m_LutData;    // the LUT's entries, for AirRadiance
 
         [NonSerialized] Texture2D m_SkyView;      // R: sky emissivity by sqrt(direction.y)
         [NonSerialized] Texture2D m_SkyDiffuse;   // RG: in-band, broadband diffuse factor by N.y
@@ -261,6 +263,12 @@ namespace IMT.Thermal
         /// <summary>Clear-sky sunlight at the last update: direct normal, diffuse and global horizontal.</summary>
         public SolarIrradiance Sunlight { get; private set; }
 
+        /// <summary>
+        /// The air's in-band radiance at the last update, W/m²/sr: the radiance LUT at the air temperature, interpolated
+        /// as the shader's ThermalRadiance does. The same for every pixel, so worked out once per frame here (item 10).
+        /// </summary>
+        public double AirRadiance { get; private set; }
+
         /// <summary>True while the clear-sky functions are not written and the old 900 W/m2 stands in.</summary>
         public bool SunlightIsPlaceholder => m_ClearSkyMissing;
 
@@ -303,6 +311,7 @@ namespace IMT.Thermal
                 DestroyImmediate(m_Lut);
                 m_Lut = null;
             }
+            m_LutData = null;
             DestroyTable(ref m_SkyView);
             DestroyTable(ref m_SkyDiffuse);
             m_SkyViewData = m_SkyDiffuseData = null;
@@ -402,6 +411,8 @@ namespace IMT.Thermal
             }
 
             Shader.SetGlobalFloat(k_AirT, (float)AirTemperature);
+            AirRadiance = LutRadiance(AirTemperature);
+            Shader.SetGlobalFloat(k_AirRadiance, (float)AirRadiance);
             Shader.SetGlobalFloat(k_WindSpeed, (float)site.windSpeed);
 
             SolarAngles sun = ThermalMath.Solar(site.latitude, site.longitude, utc);
@@ -782,7 +793,8 @@ namespace IMT.Thermal
                 // UnloadUnusedAssets can free it while still bound - a shader global is not a
                 // reference Unity tracks. The price is that OnDisable must destroy it.
                 hideFlags = HideFlags.HideAndDontSave,
-                filterMode = FilterMode.Bilinear,
+                // Read with Load and blended in the shader (ThermalRadiance), never filtered by the hardware.
+                filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
             };
 
@@ -798,6 +810,21 @@ namespace IMT.Thermal
 
             m_Lut.SetPixelData(data, 0);
             m_Lut.Apply(false, true);
+            m_LutData = data;
+        }
+
+        /// <summary>
+        /// The LUT at <paramref name="temperatureK"/>, as the shader's ThermalRadiance reads it: the two neighbouring
+        /// entries blended linearly, clamped to the table's range.
+        /// </summary>
+        double LutRadiance(double temperatureK)
+        {
+            if (m_LutData == null)
+                return ThermalMath.BandIntegration(temperatureK);
+            double x = Math.Max(0.0, Math.Min(1.0, (temperatureK - k_LutLowK) / (k_LutHighK - k_LutLowK)))
+                     * (k_LutSamples - 1);
+            int i = Math.Min((int)Math.Floor(x), k_LutSamples - 2);
+            return m_LutData[i] + (m_LutData[i + 1] - m_LutData[i]) * (x - i);
         }
 
         // ---------------------------------------------------------------------- sky tables
