@@ -28,9 +28,14 @@ namespace IMT.Thermal
         {
             "_ThermalAirTemperature", "_ThermalWindSpeed", "_ThermalDirectNormalIrradiance",
             "_ThermalDiffuseHorizontalIrradiance", "_ThermalGlobalHorizontalIrradiance", "_ThermalGroundAlbedo",
+            "_ThermalAirRadiance",
         };
         static readonly string[] k_Vectors = { "_ThermalSunDirection", "_ThermalLutParams", "_ThermalSkyParams" };
         static readonly string[] k_Textures = { "_ThermalLut", "_ThermalSkyView", "_ThermalSkyDiffuse" };
+        static readonly string[] k_VectorArrays = { "_ThermalHistorySun", "_ThermalHistoryAir", "_ThermalHistoryWeights" };
+        // URP's main-light shadow globals and the global keywords, as the last camera to render left them (added
+        // 2026-10-27). A camera with other shadow settings rendering between two thermal frames toggles these.
+        static readonly string[] k_ShadowVectors = { "_MainLightShadowParams", "_MainLightShadowmapSize", "_ShadowBias" };
 
         ThermalCapture m_Capture;
         Camera m_Camera;
@@ -43,8 +48,10 @@ namespace IMT.Thermal
         readonly Dictionary<char, int> m_StateCounts = new Dictionary<char, int>();
         readonly Dictionary<string, int> m_Pairs = new Dictionary<string, int>();
         readonly StringBuilder m_Sequence = new StringBuilder(), m_CameraSequence = new StringBuilder();
-        uint[] m_Bits;
-        float[] m_First;            // state A, to say where the others differ from it
+        // Never kept: with Enter Play Mode's domain and scene reloads off, a field Unity carries over (an array survives
+        // a script reload) reached a run stale (2026-10-27), and OnEnable starts every run from nothing.
+        [NonSerialized] uint[] m_Bits;
+        [NonSerialized] float[] m_First;            // state A, to say where the others differ from it
         int m_WindowStart = -1, m_LastRendered = -1, m_Pending, m_FirstFrame;
 
         // The first frames after Play can still be the empty target or a half-pushed environment.
@@ -62,13 +69,27 @@ namespace IMT.Thermal
             }
             m_Lights = FindObjectsByType<Light>().Where(l => l.type == LightType.Directional).ToArray();
             m_FirstFrame = Time.frameCount + k_WarmUp;
+            m_Bits = null;
+            m_First = null;
+            m_Inputs.Clear();
+            m_Changes.Clear();
+            m_CamerasByFrame.Clear();
+            m_CameraSets.Clear();
+            m_States.Clear();
+            m_StateCounts.Clear();
+            m_Pairs.Clear();
+            m_Sequence.Clear();
+            m_CameraSequence.Clear();
+            m_WindowStart = m_LastRendered = -1;
+            m_Pending = 0;
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 
             var urp = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             var cameraData = m_Camera.GetUniversalAdditionalCameraData();
             Debug.Log(FormattableString.Invariant(
-                $"[Flicker] watching {name}: the radiance target every frame, {k_Floats.Length + k_Vectors.Length + k_Textures.Length} ") +
-                $"shader inputs, {m_Lights.Length} directional light(s), this camera's matrices, and which cameras render. " +
+                $"[Flicker] watching {name}: the radiance target every frame, {k_Floats.Length + k_Vectors.Length + k_Textures.Length + k_VectorArrays.Length} ") +
+                $"shader inputs, URP's main-light shadow globals and the global keywords, {m_Lights.Length} directional " +
+                "light(s), this camera's matrices, and which cameras render. " +
                 "Only changes are logged. " + (urp == null ? "Not URP." : FormattableString.Invariant(
                 $"Shadows: distance {urp.shadowDistance} m, {urp.shadowCascadeCount} cascade(s), soft shadows ") +
                 (urp.supportsSoftShadows ? "supported" : "off") + "; this camera renders its own: " +
@@ -117,6 +138,18 @@ namespace IMT.Thermal
                 Texture t = Shader.GetGlobalTexture(n);
                 now[n] = t == null ? "none" : $"texture {t.GetEntityId()}, update {t.updateCount}";
             }
+            foreach (string n in k_VectorArrays)
+            {
+                Vector4[] a = Shader.GetGlobalVectorArray(n);
+                now[n] = a == null || a.Length == 0 ? "none" : string.Join(" | ", a.Select(v => Bits(v)));
+            }
+            foreach (string n in k_ShadowVectors)
+                now[n] = Bits(Shader.GetGlobalVector(n));
+            Matrix4x4[] toShadow = Shader.GetGlobalMatrixArray("_MainLightWorldToShadow");
+            now["_MainLightWorldToShadow"] = toShadow == null || toShadow.Length == 0
+                ? "none" : string.Join(" || ", toShadow.Select(m => Bits(m)));
+            now["global keywords"] = string.Join(" ", Shader.enabledGlobalKeywords.Select(k => k.name).OrderBy(k => k,
+                                                                                                    StringComparer.Ordinal));
             foreach (Light l in m_Lights)
             {
                 if (l == null)
@@ -183,7 +216,7 @@ namespace IMT.Thermal
 
         void Describe(char state, int rendered)
         {
-            if (m_First == null)
+            if (m_First == null || m_First.Length != m_Bits.Length)
             {
                 m_First = new float[m_Bits.Length];
                 for (int i = 0; i < m_Bits.Length; i++)
