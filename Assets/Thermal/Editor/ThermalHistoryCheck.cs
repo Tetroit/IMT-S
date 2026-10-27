@@ -32,7 +32,7 @@ namespace IMT.Thermal
         const double k_ErfcxTolerance = 1e-12;                // relative
         const double k_SumTolerance = 1e-12;
         const double k_TemperatureTolerance = 0.004;          // K: a tenth of NETD (40 mK)
-        const int k_CaseFloats = 83, k_Samples = 8;
+        const int k_CaseFloats = 83;
 
         // From IMTNS/history_check_ref.py --emit, 2026-10-26: SciPy's erfcx.
         static readonly (double x, double value)[] k_Erfcx =
@@ -124,43 +124,33 @@ namespace IMT.Thermal
             }
 
             // The weights (C#)
-            string weights;
             double worstWeight = 0;
-            try
+            foreach (var c in k_Weights)
             {
-                foreach (var c in k_Weights)
+                var got = new double[c.lags.Length];
+                ThermalMath.HistoryWeights(c.effusivity, c.conductance, c.lags, got);
+                double off = 0, sum = 0;
+                for (int i = 0; i < got.Length; i++)
                 {
-                    var got = new double[c.lags.Length];
-                    ThermalMath.HistoryWeights(c.effusivity, c.conductance, c.lags, got);
-                    double off = 0, sum = 0;
-                    for (int i = 0; i < got.Length; i++)
-                    {
-                        double d = Math.Abs(got[i] - c.weights[i]);
-                        off = double.IsNaN(d) ? double.PositiveInfinity : Math.Max(off, d);
-                        sum += got[i];
-                    }
-                    bool ok = off <= c.tolerance && Math.Abs(sum - 1.0) <= k_SumTolerance;
-                    if (c.tolerance <= 1e-9)
-                        worstWeight = Math.Max(worstWeight, off);
-                    Report(ok, string.Format(CultureInfo.InvariantCulture,
-                        "weights  {0,-14} {1,-8} e {2,8:G} H {3,5:F1}: now {4:F6}, oldest {5:F6}, worst {6:0.0e+0} " +
-                        "(limit {7:0e+0}), sum - 1 {8:+0.0e+0;-0.0e+0}   {9}",
-                        c.name, c.spacing, c.effusivity, c.conductance, got[0], got[got.Length - 1], off, c.tolerance,
-                        sum - 1.0, ok ? "ok" : "FAIL"));
+                    double d = Math.Abs(got[i] - c.weights[i]);
+                    off = double.IsNaN(d) ? double.PositiveInfinity : Math.Max(off, d);
+                    sum += got[i];
                 }
-                weights = string.Format(CultureInfo.InvariantCulture, "worst weight {0:0.0e+0}", worstWeight);
-            }
-            catch (NotImplementedException)
-            {
-                weights = "weights not written yet";
-                Debug.LogWarning("[History] ThermalMath.HistoryWeights is not written yet: its cases are skipped");
+                bool ok = off <= c.tolerance && Math.Abs(sum - 1.0) <= k_SumTolerance;
+                if (c.tolerance <= 1e-9)
+                    worstWeight = Math.Max(worstWeight, off);
+                Report(ok, string.Format(CultureInfo.InvariantCulture,
+                    "weights  {0,-14} {1,-8} e {2,8:G} H {3,5:F1}: now {4:F6}, oldest {5:F6}, worst {6:0.0e+0} " +
+                    "(limit {7:0e+0}), sum - 1 {8:+0.0e+0;-0.0e+0}   {9}",
+                    c.name, c.spacing, c.effusivity, c.conductance, got[0], got[got.Length - 1], off, c.tolerance,
+                    sum - 1.0, ok ? "ok" : "FAIL"));
             }
 
             // The balance (HLSL)
             string balance = RunBalance(Report);
 
-            string summary = string.Format(CultureInfo.InvariantCulture, "worst erfcx {0:0.0e+0} relative; {1}; {2}",
-                                           worstErfcx, weights, balance);
+            string summary = string.Format(CultureInfo.InvariantCulture, "worst erfcx {0:0.0e+0} relative; worst weight " +
+                                           "{1:0.0e+0}; {2}", worstErfcx, worstWeight, balance);
             if (failed == 0)
                 Debug.Log($"[History] all {checks} checks passed: {summary}");
             else
@@ -176,7 +166,7 @@ namespace IMT.Thermal
                 return "balance not run";
             }
 
-            // A contract the physics does not meet yet shows as compile errors, with ThermalPhysics.hlsl's lines.
+            // A contract the physics no longer meets shows as compile errors, with ThermalPhysics.hlsl's lines.
             int errors = 0;
             foreach (ShaderMessage m in ShaderUtil.GetComputeShaderMessages(shader))
             {
@@ -192,19 +182,6 @@ namespace IMT.Thermal
                                "ThermalSurface s, ThermalHistory h): rename them here or there");
                 report(false, "the balance's kernels do not compile");
                 return "balance does not compile";
-            }
-
-            float ready = RunOne(shader, "Ready");
-            if (ready == 0)
-            {
-                Debug.LogWarning("[History] ThermalPhysics.hlsl does not define THERMAL_PHYSICS_HISTORY yet: the balance " +
-                                 "cases are skipped");
-                return "balance not written yet";
-            }
-            if (ready != k_Samples)
-            {
-                report(false, $"THERMAL_HISTORY_SAMPLES is {ready}; the cases have {k_Samples} samples");
-                return "balance not run";
             }
 
             // The plumbing first, so a buffer fault never passes for a physics fault.
@@ -263,18 +240,6 @@ namespace IMT.Thermal
                                          c.name, t[i], off, ok ? "ok" : "FAIL"));
             }
             return string.Format(CultureInfo.InvariantCulture, "worst T {0:0.0e+0} K", worstT);
-        }
-
-        static float RunOne(ComputeShader shader, string name)
-        {
-            int kernel = shader.FindKernel(name);
-            using var output = new ComputeBuffer(1, sizeof(float));
-            output.SetData(new[] { float.NaN });
-            shader.SetBuffer(kernel, "_Ready", output);
-            shader.Dispatch(kernel, 1, 1, 1);
-            var got = new float[1];
-            output.GetData(got);
-            return got[0];
         }
 
         static float[] Filled(int length, float value)

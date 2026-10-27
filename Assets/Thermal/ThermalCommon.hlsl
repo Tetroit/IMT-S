@@ -68,7 +68,6 @@ float SkyRadiance(float3 direction)
 // Item 5 step 2, stored heat: the past samples ThermalEnvironment pushes each frame (sample 0 is now, the same values
 // as the globals above), and per surface group that stores heat its weights, row r's in [2r] and [2r + 1]. The ground
 // albedo and the shadow are the current ones for every sample.
-#if defined(THERMAL_PHYSICS_HISTORY)
 #define THERMAL_HISTORY_ROWS 5
 float4 _ThermalHistorySun[THERMAL_HISTORY_SAMPLES];        // xyz toward the sun, w direct normal irradiance
 float4 _ThermalHistoryAir[THERMAL_HISTORY_SAMPLES];        // x air K, y wind m/s, z diffuse and w global horizontal
@@ -93,6 +92,5 @@ ThermalHistory MakeHistory(int row)
     }
     return h;
 }
-#endif
 
 #endif

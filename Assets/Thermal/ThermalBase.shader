@@ -145,7 +145,6 @@ Shader "Thermal/Base"
                 surf.windB = _ThermalWindB;
                 surf.hasBack = _ThermalBackside;
 
-            #if defined(THERMAL_PHYSICS_HISTORY)
                 // Masonry and ground answer to the past few hours, thin objects and vegetation to now (item 5 step 2).
                 // The row is one per draw, so every pixel of a draw takes the same branch.
                 EnergyBalance b;
@@ -153,9 +152,6 @@ Shader "Thermal/Base"
                     b = MakeHistoryBalance(N, surf, MakeHistory((int)_ThermalHistoryRow));
                 else
                     b = MakeBalance(N, surf, env);
-            #else
-                EnergyBalance b = MakeBalance(N, surf, env);
-            #endif
                 float surfaceTemperature = SurfaceTemperature(b);
 
                 float surfaceRadiance = ThermalRadiance(surfaceTemperature);
