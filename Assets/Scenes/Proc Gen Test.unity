@@ -181,6 +181,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralGeneration.GeometryConfig
   _terrainConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
   _terrainGeneratorPrefab: {fileID: 4128708456705682046, guid: d9991b5c35a88364894ba660e534fefd, type: 3}
+  _seed: 0
   drawTileGizmos: 1
 --- !u!4 &275248951
 Transform:
@@ -287,7 +288,7 @@ Transform:
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 72.4, z: 0}
+  m_LocalPosition: {x: 46.8, y: 89, z: -24.9}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -498,7 +499,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.22665453, y: 0.063258454, z: -0.014753771, w: 0.97180676}
+  m_LocalRotation: {x: -0.085350856, y: 0.6737163, z: 0.0787914, w: 0.72980374}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0

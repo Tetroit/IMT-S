@@ -13,7 +13,7 @@ public static class NoiseUtils
     /// Deterministic integer hash of (x, y, seed). Used to derive both
     /// Perlin gradients and Voronoi feature points without a permutation table.
     /// </summary>
-    private static int HashCoords(int x, int y, int seed)
+    public static int HashCoords(int x, int y, int seed)
     {
         unchecked
         {

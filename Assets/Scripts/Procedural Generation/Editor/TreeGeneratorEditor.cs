@@ -11,6 +11,10 @@ namespace ProceduralGeneration.Editor
             base.OnInspectorGUI();
             TreeGenerator treeGenerator = (TreeGenerator)target;
 
+            if (!treeGenerator.allowsTrees)
+                EditorGUILayout.HelpBox($"Tile zoom {treeGenerator.tileZoom} is below Min Tile Zoom, the pipeline skips trees on this tile.", MessageType.Info);
+            EditorGUILayout.LabelField("Trees", $"{treeGenerator.points.Count} points, {treeGenerator.treeCount} drawn");
+
             if (GUILayout.Button("Distribute Points"))
             {
                 treeGenerator.DistributePoints();
@@ -19,10 +23,12 @@ namespace ProceduralGeneration.Editor
             if (GUILayout.Button("Generate Trees"))
             {
                 treeGenerator.GenerateTrees();
+                SceneView.RepaintAll();
             }
             if (GUILayout.Button("Destroy Trees"))
             {
                 treeGenerator.DestroyTrees();
+                SceneView.RepaintAll();
             }
         }
     }

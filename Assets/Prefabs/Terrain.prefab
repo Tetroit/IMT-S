@@ -52,6 +52,7 @@ MonoBehaviour:
   _tilePrefab: {fileID: 407617576872590334, guid: 11c9314ad74284942842193f48affeb4, type: 3}
   _satContext: {fileID: 11400000, guid: 8c77f1f20800e124f832cf23c159c49d, type: 2}
   _terrainConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
+  _seed: 0
   _tileSubdivision: 4
   _uvScale: 15.16
   _pixelStep: 8
@@ -140,7 +141,7 @@ MonoBehaviour:
   _satContext: {fileID: 11400000, guid: 8c77f1f20800e124f832cf23c159c49d, type: 2}
   _terrainConfig: {fileID: 11400000, guid: 5eb0616cef92e354da2e8d8f563a4647, type: 2}
   _buildingSegID: 8
-  _minPixels: 100
+  _minArea: 100
   _diagonalAdjacency: 0
   _buildingPrefab: {fileID: 5302622839992817879, guid: 93f286e8635818f43b8369a315ce475a, type: 3}
   _floorRange: {x: 2, y: 2}
@@ -168,6 +169,16 @@ MonoBehaviour:
   _margin: 2
   _maxAttempts: 30
   _seed: 0
-  _treePrefab: {fileID: 331871441677278545, guid: 42025a64334cf8e4b86ff9dd1abefc82, type: 3}
+  _treeMeshes:
+  - {fileID: -2403570478715253502, guid: e2754d88f2f47164eaabe5ef3b9cd718, type: 3}
+  - {fileID: -1080666238746701981, guid: 61b0d65dc8d2b80458e2f5f8325bbaa7, type: 3}
+  - {fileID: 4679645601081331871, guid: 328cd90722a52194f80cf9a79cc54c03, type: 3}
+  _treeMaterial: {fileID: 2100000, guid: 146724aea7490d84983525419b5369c5, type: 2}
+  _thermalMaterial: {fileID: 11400000, guid: 0fdacb1397a812941a98b5426d9ef0b7, type: 2}
+  _treePrefab: {fileID: 0}
   _sizeRange: {x: 5, y: 7}
+  _minTileZoom: 13
+  _maxDrawDistance: 2000
+  _cellSize: 250
   _gizmoColor: {r: 0.1, g: 0.8, b: 0.2, a: 1}
+  _treesGenerated: 0

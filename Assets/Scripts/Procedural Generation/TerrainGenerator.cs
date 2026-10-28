@@ -20,6 +20,8 @@ namespace ProceduralGeneration
         [SerializeField] private GameObject _tilePrefab;
         [SerializeField] private SatContext.SatContext _satContext;
         [SerializeField] private TerrainConfig _terrainConfig;
+        [Tooltip("Seed of the houses and trees, set per tile by TerrainCoordinator.")]
+        [SerializeField] private int _seed = 0;
 
         [Header("Mesh config")]
         [Range(1,16)]
@@ -586,6 +588,8 @@ namespace ProceduralGeneration
 
             if (treeGenerator == null)
                 Logger.Logger.LogWarning($"No TreeGenerator on {name}, skipping trees", "ProcGen", this);
+            else if (!treeGenerator.allowsTrees)
+                Logger.Logger.Log($"Tile zoom {treeGenerator.tileZoom.ToString()} is below the tree min tile zoom {treeGenerator.minTileZoom.ToString()}, no trees on {name}", "ProcGen", this);
             else
             {
                 string path = _satContext.treesCachePath;
@@ -659,7 +663,8 @@ namespace ProceduralGeneration
         }
 
         /// <summary>
-        /// Points the other generators at this generator's sat context and terrain config (and the trees at the houses).
+        /// Points the other generators at this generator's sat context and terrain config (and the trees at the houses),
+        /// the houses and trees also get its seed.
         /// </summary>
         private void BindGenerators(HouseGenerator houseGenerator, TreeGenerator treeGenerator, RoadNetworkBuilder roadBuilder)
         {
@@ -674,9 +679,9 @@ namespace ProceduralGeneration
             }
 
             if (houseGenerator != null)
-                LogBound(houseGenerator, houseGenerator.BindSources(_satContext, _terrainConfig));
+                LogBound(houseGenerator, houseGenerator.BindSources(_satContext, _terrainConfig, _seed));
             if (treeGenerator != null)
-                LogBound(treeGenerator, treeGenerator.BindSources(_satContext, _terrainConfig, houseGenerator));
+                LogBound(treeGenerator, treeGenerator.BindSources(_satContext, _terrainConfig, houseGenerator, _seed));
             if (roadBuilder != null)
                 LogBound(roadBuilder, roadBuilder.BindSources(_satContext, _terrainConfig));
         }
@@ -725,12 +730,13 @@ namespace ProceduralGeneration
 
         /// <summary>
         /// Points the generator at a tile, used by <see cref="TerrainCoordinator.SpawnTile"/>.
-        /// <see cref="RunPipeline"/> passes both on to the other generators.
+        /// <see cref="RunPipeline"/> passes all of them on to the other generators.
         /// </summary>
-        public void BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig)
+        public void BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig, int seed)
         {
             _satContext = satContext;
             _terrainConfig = terrainConfig;
+            _seed = seed;
         }
 
         public void CreateRandomMesh()

@@ -29,6 +29,7 @@ namespace ProceduralGeneration
         [SerializeField] private ProceduralBuildingDrawer _buildingPrefab;
         [Tooltip("Floor count per building including the roof floor, both ends inclusive.")]
         [SerializeField] private Vector2Int _floorRange = new Vector2Int(2, 3);
+        [Tooltip("Seed of the floor counts and building drawer seeds, same seed and houses give the same buildings.")]
         [SerializeField] private int _seed = 0;
         // Serialized, unlike the houses, so the buildings can still be destroyed after a domain reload.
         [SerializeField, HideInInspector] private List<ProceduralBuildingDrawer> _buildings = new List<ProceduralBuildingDrawer>();
@@ -95,11 +96,12 @@ namespace ProceduralGeneration
         /// Points the generator at the given sources, used by <see cref="TerrainGenerator.RunPipeline"/>.
         /// </summary>
         /// <returns>True if anything changed.</returns>
-        public bool BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig)
+        public bool BindSources(SatContext.SatContext satContext, TerrainConfig terrainConfig, int seed)
         {
-            bool changed = _satContext != satContext || _terrainConfig != terrainConfig;
+            bool changed = _satContext != satContext || _terrainConfig != terrainConfig || _seed != seed;
             _satContext = satContext;
             _terrainConfig = terrainConfig;
+            _seed = seed;
             return changed;
         }
 

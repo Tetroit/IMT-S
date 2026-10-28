@@ -26,6 +26,8 @@ namespace ProceduralGeneration.SatContext
         public string treesCachePath => Path.Combine(absoluteFolderPath, TreesCacheFile);
         public string roadsCachePath => Path.Combine(absoluteFolderPath, RoadsCacheFile);
         public string[] cachePaths => new[] { housesCachePath, treesCachePath, roadsCachePath };
+        /// <summary>Folders with this file are tile folders.</summary>
+        public static bool IsTileFolder(string folder) => File.Exists(Path.Combine(folder, SegmentationApiClient.MetadataFile));
 
         
         [SerializeField] private SatMetadata _metadata;
@@ -185,19 +187,41 @@ namespace ProceduralGeneration.SatContext
         }
 
         /// <summary>
+        /// Drops the images from memory, the metadata and the files on disk are kept. <see cref="LoadData"/> brings them back.
+        /// </summary>
+        public void UnloadData()
+        {
+            if (_colorImage != null)
+                DestroyImmediate(_colorImage);
+            if (_segmentationConfidenceImage != null)
+                DestroyImmediate(_segmentationConfidenceImage);
+            _colorImage = null;
+            _segmentationConfidenceImage = null;
+            _segmentationImage = null;
+            _heightmapImage = null;
+        }
+
+        /// <summary>
         /// Deletes the pipeline caches (<see cref="cachePaths"/>) and their .meta files, nothing else in the folder.
         /// </summary>
         /// <returns>Number of deleted caches.</returns>
-        public int ClearCache()
+        public int ClearCache() => ClearCache(absoluteFolderPath);
+
+        /// <summary>
+        /// Deletes the pipeline caches in <paramref name="folder"/> (absolute) and their .meta files, nothing else in the folder.
+        /// </summary>
+        /// <returns>Number of deleted caches.</returns>
+        public static int ClearCache(string folder)
         {
             int deleted = 0;
-            foreach (string path in cachePaths)
+            foreach (string file in new[] { HousesCacheFile, TreesCacheFile, RoadsCacheFile })
             {
+                string path = Path.Combine(folder, file);
                 if (File.Exists(path))
                 {
                     File.Delete(path);
                     deleted++;
-                    Logger.Logger.Log($"Deleted cache {path}", "ProcGen", this);
+                    Logger.Logger.Log($"Deleted cache {path}", "ProcGen");
                 }
                 string metaPath = path + ".meta";
                 if (File.Exists(metaPath))

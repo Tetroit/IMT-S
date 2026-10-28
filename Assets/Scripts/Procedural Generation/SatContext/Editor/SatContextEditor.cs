@@ -42,7 +42,8 @@ namespace ProceduralGeneration.SatContext.Editor
             }
             using (new EditorGUILayout.HorizontalScope())
             {
-                bool imgLoaded = satContext.segmentationImage.loaded;
+                // Null after UnloadData until the next serialization.
+                bool imgLoaded = satContext.segmentationImage?.loaded == true;
                 GUILayout.Label("Segmentation Image");
                 GUILayout.Label(imgLoaded ? "loaded" : "not loaded", BoolStyle(imgLoaded), GUILayout.Width(70));
                 GUILayout.Label(imgLoaded ? $"{satContext.segmentationImage.width}x{satContext.segmentationImage.height}" : "-", GUILayout.Width(70));
@@ -63,7 +64,7 @@ namespace ProceduralGeneration.SatContext.Editor
             }
             using (new EditorGUILayout.HorizontalScope())
             {
-                bool imgLoaded = satContext.heightmapImage.loaded;
+                bool imgLoaded = satContext.heightmapImage?.loaded == true;
                 GUILayout.Label("Heightmap Image");
                 GUILayout.Label(imgLoaded ? "loaded" : "not loaded", BoolStyle(imgLoaded), GUILayout.Width(70));
                 GUILayout.Label(imgLoaded ? $"{satContext.heightmapImage.shape[1]}x{satContext.heightmapImage.shape[0]}" : "-", GUILayout.Width(70));

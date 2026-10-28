@@ -13,6 +13,8 @@ namespace ProceduralGeneration
         [SerializeField] private TerrainConfig _terrainConfig;
         [Tooltip("Instantiated once per tile, needs the house, tree and road generators next to it to build them.")]
         [SerializeField] private TerrainGenerator _terrainGeneratorPrefab;
+        [Tooltip("World seed, every tile gets its own seed derived from it and the tile coordinates.")]
+        [SerializeField] private int _seed = 0;
 
         [Header("Gizmos")]
         [Tooltip("Draw the terrain config tiles in the scene view while this object is selected.")]
@@ -54,7 +56,9 @@ namespace ProceduralGeneration
             generator.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
             var tile = satContext.metadata?.export?.tile;
             generator.name = tile != null ? $"Tile {tile.z}-{tile.x}-{tile.y}" : $"Tile {satContext.name}";
-            generator.BindSources(satContext, _terrainConfig);
+            // Without tile coordinates the world seed is used as is.
+            int seed = tile != null ? NoiseUtils.HashCoords(tile.x, tile.y, NoiseUtils.HashCoords(tile.z, 0, _seed)) : _seed;
+            generator.BindSources(satContext, _terrainConfig, seed);
 
             if (!generator.RunPipeline())
             {
@@ -63,6 +67,18 @@ namespace ProceduralGeneration
                 return null;
             }
             return generator;
+        }
+
+        /// <summary>
+        /// Destroys every tile spawned by <see cref="SpawnTile"/>.
+        /// </summary>
+        /// <returns>Number of destroyed tiles.</returns>
+        public int DestroyTiles()
+        {
+            var generators = GetComponentsInChildren<TerrainGenerator>();
+            foreach (var generator in generators)
+                DestroyObject(generator.gameObject);
+            return generators.Length;
         }
 
         private static void DestroyObject(GameObject target)
