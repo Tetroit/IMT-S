@@ -41,7 +41,7 @@ Shader "Thermal/Sky"
             float frag(Varyings IN) : SV_Target
             {
                 float3 dir = normalize(IN.dirOS);
-                return SkyRadiance(dir);
+                return BandRadiance(SkyRadiance(dir));
                 // dir.y: +1 straight up, 0 horizon, -1 straight down
             }
             ENDHLSL

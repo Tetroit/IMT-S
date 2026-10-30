@@ -98,6 +98,32 @@ namespace IMT.Thermal
             return integral;
         }
 
+        /// <summary>
+        /// The atmosphere's four sub-bands (ThermalAtmosphere), in wavenumber order: 14-12.5, 12.5-10.22, 10.22-9.26
+        /// (ozone) and 9.26-8 µm. Their edges fall between BandIntegration's samples (every 0.06 µm from 8 µm), so
+        /// SubBandIntegration splits exactly those samples and the four sum to BandIntegration.
+        /// </summary>
+        public static readonly double[] SubBandEdges = { 14e-6, 12.5e-6, 10.22e-6, 9.26e-6, 8e-6 };
+
+        /// <summary>BandIntegration per sub-band: <paramref name="result"/> takes the four, in SubBandEdges' order.</summary>
+        public static void SubBandIntegration(double temperatureK, double[] result)
+        {
+            double lo = 8e-6, hi = 14e-6, n = 100;
+            var dl = (hi - lo) / n;
+            Array.Clear(result, 0, 4);
+            for (int i = 0; i < n; i++)
+            {
+                double lambda = lo + (i + 0.5) * dl;
+                int k = 0;
+                while (lambda < SubBandEdges[k + 1])
+                    k++;
+                result[k] += ComputePlanckLaw(lambda, temperatureK);
+            }
+
+            for (int k = 0; k < 4; k++)
+                result[k] *= dl;
+        }
+
         // all calcs in double since we need the precision
         public static SolarAngles Solar(double latDeg, double lonDeg, DateTime utc)
         {

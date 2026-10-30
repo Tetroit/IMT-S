@@ -28,10 +28,10 @@ namespace IMT.Thermal
         {
             "_ThermalAirTemperature", "_ThermalWindSpeed", "_ThermalDirectNormalIrradiance",
             "_ThermalDiffuseHorizontalIrradiance", "_ThermalGlobalHorizontalIrradiance", "_ThermalGroundAlbedo",
-            "_ThermalAirRadiance",
         };
-        static readonly string[] k_Vectors = { "_ThermalSunDirection", "_ThermalLutParams", "_ThermalSkyParams" };
-        static readonly string[] k_Textures = { "_ThermalLut", "_ThermalSkyView", "_ThermalSkyDiffuse" };
+        static readonly string[] k_Vectors =
+            { "_ThermalSunDirection", "_ThermalLutParams", "_ThermalSkyParams", "_ThermalAirSubBandRadiance" };
+        static readonly string[] k_Textures = { "_ThermalSubBandLut", "_ThermalSkyView", "_ThermalSkyDiffuse" };
         static readonly string[] k_VectorArrays = { "_ThermalHistorySun", "_ThermalHistoryAir", "_ThermalHistoryWeights" };
         // URP's main-light shadow globals and the global keywords, as the last camera to render left them (added
         // 2026-10-27). A camera with other shadow settings rendering between two thermal frames toggles these.

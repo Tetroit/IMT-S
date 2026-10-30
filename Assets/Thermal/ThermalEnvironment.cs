@@ -88,16 +88,17 @@ namespace IMT.Thermal
         [Tooltip("Leave empty to use the Lighting sun source, or the first directional light.")]
         [SerializeField] Light m_Sun;
 
-        // D-005: uniform in temperature, 1024 entries over 180-1200 K.
+        // D-005: uniform in temperature, 1024 entries over 180-1200 K; since the atmosphere's step 2 one channel per
+        // sub-band (ThermalMath.SubBandEdges).
         const int k_LutSamples = 1024;
         const double k_LutLowK = 180, k_LutHighK = 1200;
 
         const double Deg2Rad = Math.PI / 180.0;
 
-        static readonly int k_Lut = Shader.PropertyToID("_ThermalLut");
+        static readonly int k_Lut = Shader.PropertyToID("_ThermalSubBandLut");
         static readonly int k_LutParams = Shader.PropertyToID("_ThermalLutParams");
         static readonly int k_AirT = Shader.PropertyToID("_ThermalAirTemperature");
-        static readonly int k_AirRadiance = Shader.PropertyToID("_ThermalAirRadiance");
+        static readonly int k_AirRadiance = Shader.PropertyToID("_ThermalAirSubBandRadiance");
         static readonly int k_SunDir = Shader.PropertyToID("_ThermalSunDirection");
         static readonly int k_DirectNormal = Shader.PropertyToID("_ThermalDirectNormalIrradiance");
         static readonly int k_DiffuseHorizontal = Shader.PropertyToID("_ThermalDiffuseHorizontalIrradiance");
@@ -119,7 +120,7 @@ namespace IMT.Thermal
         // Built once, not per frame: the old per-frame build allocated a Texture2D every update and
         // never freed it, which a continuously running sim cannot survive.
         [NonSerialized] Texture2D m_Lut;
-        [NonSerialized] float[] m_LutData;    // the LUT's entries, for AirRadiance
+        [NonSerialized] float[] m_LutData;    // the LUT's entries, four per temperature, for SubBandRadiance
 
         [NonSerialized] Texture2D m_SkyView;      // R: sky emissivity by sqrt(direction.y)
         [NonSerialized] Texture2D m_SkyDiffuse;   // RG: in-band, broadband diffuse factor by N.y
@@ -264,10 +265,11 @@ namespace IMT.Thermal
         public SolarIrradiance Sunlight { get; private set; }
 
         /// <summary>
-        /// The air's in-band radiance at the last update, W/m²/sr: the radiance LUT at the air temperature, interpolated
-        /// as the shader's ThermalRadiance does. The same for every pixel, so worked out once per frame here (item 10).
+        /// The air's radiance per sub-band at the last update, W/m²/sr, in ThermalMath.SubBandEdges' order: the LUT at
+        /// the air temperature, read as the shader's ThermalSubBandRadiance reads it. The same for every pixel, so
+        /// worked out once per frame here (item 10).
         /// </summary>
-        public double AirRadiance { get; private set; }
+        public double[] AirSubBandRadiance { get; } = new double[4];
 
         /// <summary>True while the clear-sky functions are not written and the old 900 W/m2 stands in.</summary>
         public bool SunlightIsPlaceholder => m_ClearSkyMissing;
@@ -411,8 +413,9 @@ namespace IMT.Thermal
             }
 
             Shader.SetGlobalFloat(k_AirT, (float)AirTemperature);
-            AirRadiance = LutRadiance(AirTemperature);
-            Shader.SetGlobalFloat(k_AirRadiance, (float)AirRadiance);
+            double[] air = AirSubBandRadiance;
+            SubBandRadiance(AirTemperature, air);
+            Shader.SetGlobalVector(k_AirRadiance, new Vector4((float)air[0], (float)air[1], (float)air[2], (float)air[3]));
             Shader.SetGlobalFloat(k_WindSpeed, (float)site.windSpeed);
 
             SolarAngles sun = ThermalMath.Solar(site.latitude, site.longitude, utc);
@@ -785,27 +788,31 @@ namespace IMT.Thermal
             if (m_Lut != null)
                 return;
 
-            m_Lut = new Texture2D(k_LutSamples, 1, TextureFormat.RFloat, false)
+            m_Lut = new Texture2D(k_LutSamples, 1, TextureFormat.RGBAFloat, false)
             {
-                name = "ThermalLut",
+                name = "ThermalSubBandLut",
                 // Created by code in an [ExecuteAlways] component, so it exists in edit mode:
                 // without this it can be saved into the scene, it logs "leaked" warnings, and
                 // UnloadUnusedAssets can free it while still bound - a shader global is not a
                 // reference Unity tracks. The price is that OnDisable must destroy it.
                 hideFlags = HideFlags.HideAndDontSave,
-                // Read with Load and blended in the shader (ThermalRadiance), never filtered by the hardware.
+                // Read with Load and blended in the shader (ThermalSubBandRadiance), never filtered by the hardware.
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
             };
 
-            // Same arithmetic, in the same order, as the table verified in D-005, so the LUT - and
-            // every cluster value downstream of it - is byte-identical to before.
-            var data = new float[k_LutSamples];
+            // The temperatures D-005 verified, each texel BandIntegration's samples split by sub-band: the four
+            // channels sum to the one-channel LUT before them within float32 rounding (8e-8 relative over 200-400 K,
+            // IMTNS/atmosphere/subband_check_ref.py; Thermal → Sub-band Check).
+            var data = new float[k_LutSamples * 4];
+            var subBands = new double[4];
             for (int i = 0; i < k_LutSamples; i++)
             {
                 double t = i / (double)(k_LutSamples - 1);
                 double T = k_LutLowK + t * (k_LutHighK - k_LutLowK);
-                data[i] = (float)ThermalMath.BandIntegration(T);
+                ThermalMath.SubBandIntegration(T, subBands);
+                for (int k = 0; k < 4; k++)
+                    data[i * 4 + k] = (float)subBands[k];
             }
 
             m_Lut.SetPixelData(data, 0);
@@ -814,17 +821,25 @@ namespace IMT.Thermal
         }
 
         /// <summary>
-        /// The LUT at <paramref name="temperatureK"/>, as the shader's ThermalRadiance reads it: the two neighbouring
-        /// entries blended linearly, clamped to the table's range.
+        /// The LUT at <paramref name="temperatureK"/> per sub-band, as the shader's ThermalSubBandRadiance reads it:
+        /// the two neighbouring entries blended linearly, clamped to the table's range. <paramref name="result"/> takes
+        /// four, in ThermalMath.SubBandEdges' order.
         /// </summary>
-        double LutRadiance(double temperatureK)
+        public void SubBandRadiance(double temperatureK, double[] result)
         {
             if (m_LutData == null)
-                return ThermalMath.BandIntegration(temperatureK);
+            {
+                ThermalMath.SubBandIntegration(temperatureK, result);
+                return;
+            }
             double x = Math.Max(0.0, Math.Min(1.0, (temperatureK - k_LutLowK) / (k_LutHighK - k_LutLowK)))
                      * (k_LutSamples - 1);
             int i = Math.Min((int)Math.Floor(x), k_LutSamples - 2);
-            return m_LutData[i] + (m_LutData[i + 1] - m_LutData[i]) * (x - i);
+            for (int k = 0; k < 4; k++)
+            {
+                float a = m_LutData[i * 4 + k], b = m_LutData[(i + 1) * 4 + k];
+                result[k] = a + (b - a) * (x - i);
+            }
         }
 
         // ---------------------------------------------------------------------- sky tables

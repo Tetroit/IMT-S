@@ -154,12 +154,13 @@ Shader "Thermal/Base"
                     b = MakeBalance(N, surf, env);
                 float surfaceTemperature = SurfaceTemperature(b);
 
-                float surfaceRadiance = ThermalRadiance(surfaceTemperature);
+                // Per sub-band (ThermalCommon), summed for the camera at the end.
+                float4 surfaceRadiance = ThermalSubBandRadiance(surfaceTemperature);
 
-                float La = _ThermalAirRadiance;      // the same for every pixel: once per frame, on the CPU
-                float reflected = (1 - F) * La + skyD.x * La;
+                float4 La = _ThermalAirSubBandRadiance;     // the same for every pixel: once per frame, on the CPU
+                float4 reflected = (1 - F) * La + skyD.x * La;
 
-                return surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected;
+                return BandRadiance(surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected);
             }
             ENDHLSL
         }
