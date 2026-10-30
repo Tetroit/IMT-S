@@ -1,36 +1,34 @@
 using System;
-using System.Collections.Generic;
-using System.Globalization;
-using Unity.Mathematics;
+
 
 namespace IMT.Thermal
 {
-
     public static class ThermalConstants
     {
         public const double BoltzmannConstant = 1.380649e-23;
         public const double SpeedOfLight = 299792458;
         public const double PlanckConstant = 6.62607015e-34;
     }
-    
+
     public struct SolarAngles
     {
-        public double azimuth;         // degrees, clockwise from North
-        public double elevation;       // degrees above horizon, refraction-corrected
-        public double declination;     // degrees
-        public double equationOfTime;  // minutes
+        public double azimuth; // degrees, clockwise from North
+        public double elevation; // degrees above horizon, refraction-corrected
+        public double declination; // degrees
+        public double equationOfTime; // minutes
 
         public override string ToString()
         {
-            return $"Azimuth: {azimuth}, Elevation: {elevation}, Declination: {declination}, EquationOfTime: {equationOfTime}";
+            return
+                $"Azimuth: {azimuth}, Elevation: {elevation}, Declination: {declination}, EquationOfTime: {equationOfTime}";
         }
     }
 
     public struct SolarIrradiance
     {
-        public double directNormal;       // W/m2, on a surface facing the sun (DNI)
-        public double diffuseHorizontal;  // W/m2, scattered sky light on a flat surface (DHI)
-        public double globalHorizontal;   // W/m2, all of it on a flat surface: DNI * cos(zenith) + DHI
+        public double directNormal; // W/m2, on a surface facing the sun (DNI)
+        public double diffuseHorizontal; // W/m2, scattered sky light on a flat surface (DHI)
+        public double globalHorizontal; // W/m2, all of it on a flat surface: DNI * cos(zenith) + DHI
 
         public override string ToString()
         {
@@ -40,13 +38,22 @@ namespace IMT.Thermal
 
     public struct SunTimes
     {
-        public DateTime sunrise;   // UTC
-        public DateTime sunset;    // UTC
+        public DateTime sunrise; // UTC
+        public DateTime sunset; // UTC
 
         public override string ToString()
         {
             return $"Sunrise: {sunrise:yyyy-MM-dd HH:mm:ss} UTC, Sunset: {sunset:yyyy-MM-dd HH:mm:ss} UTC";
         }
+    }
+
+    /// <summary>The ground's air a ray from the camera starts in (the atmosphere, step 3).</summary>
+    public struct AtmosphereAir
+    {
+        public double airTemperatureK; // at the ground, now (ThermalEnvironment.AirTemperature)
+        public double dewPointK; // the site's
+        public double altitudeM; // the ground above sea level
+        public double ozone; // mixing ratio, e.g. 40e-9
     }
 
     public static class ThermalMath
@@ -61,7 +68,7 @@ namespace IMT.Thermal
         static double AsinD(double x) => Math.Asin(x) * Rad2Deg;
         static double AcosD(double x) => Math.Acos(x) * Rad2Deg;
         static double Atan2D(double y, double x) => Math.Atan2(y, x) * Rad2Deg;
-        
+
         public static double ComputePlanckLaw(double lambdaMeter, double temperatureK)
         {
             double x = (ThermalConstants.PlanckConstant * ThermalConstants.SpeedOfLight) /
@@ -131,10 +138,11 @@ namespace IMT.Thermal
             {
                 return ((x % 360) + 360) % 360;
             }
+
             // Julian day and century
             double year = utc.Year;
             double month = utc.Month;
-            double dayFraction = utc.Day + (utc.Hour + utc.Minute/60.0 + utc.Second/3600.0) / 24.0;
+            double dayFraction = utc.Day + (utc.Hour + utc.Minute / 60.0 + utc.Second / 3600.0) / 24.0;
 
             if (month <= 2)
             {
@@ -145,11 +153,12 @@ namespace IMT.Thermal
             double century = Math.Floor(year / 100.0);
             double gregorian = 2.0 - century + Math.Floor(century / 4.0);
 
-            double julianDay = Math.Floor(365.25 * (year + 4716.0)) + Math.Floor(30.6001 * (month + 1)) + dayFraction + gregorian - 1524.5;
+            double julianDay = Math.Floor(365.25 * (year + 4716.0)) + Math.Floor(30.6001 * (month + 1)) + dayFraction +
+                gregorian - 1524.5;
 
             double julianCentury = (julianDay - 2451545.0) / 36525.0;
             double t = julianCentury;
-            
+
             // sun calculations
             double meanLongitude = mod360(280.46646 + t * (36000.76983 + t * 0.0003032));
             double meanAnomaly = 357.52911 + t * (35999.05029 - 0.0001537 * t);
@@ -158,16 +167,16 @@ namespace IMT.Thermal
             double equationOfCentre = SinD(meanAnomaly) * (1.914602 - t * (0.004817 + 0.000014 * t))
                                       + SinD(2 * meanAnomaly) * (0.019993 - 0.000101 * t)
                                       + SinD(3 * meanAnomaly) * 0.000289;
-            
+
             double trueLongitude = meanLongitude + equationOfCentre;
             double omega = 125.04 - 1934.136 * t;
             double apperentLongitude = trueLongitude - 0.00569 - 0.00478 * SinD(omega);
-            
+
             // obliquity
             double meanObliquity = 23 + (26 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60.0) / 60.0;
             double obliquity = meanObliquity + 0.00256 * CosD(omega);
             double declination = AsinD(SinD(obliquity) * SinD(apperentLongitude));
-            
+
             // time and hour angle
             double eqTimeY = Math.Pow(TanD(obliquity / 2), 2.0);
 
@@ -176,21 +185,21 @@ namespace IMT.Thermal
                                      + 4 * eccentricity * eqTimeY * SinD(meanAnomaly) * CosD(2 * meanLongitude)
                                      - 0.5 * eqTimeY * eqTimeY * SinD(4 * meanLongitude)
                                      - 1.25 * eccentricity * eccentricity * SinD(2 * meanAnomaly)); // in minutes
-            
-            double utcMinutes = utc.Hour * 60 + utc.Minute + utc.Second/60.0;
+
+            double utcMinutes = utc.Hour * 60 + utc.Minute + utc.Second / 60.0;
             double trueSolarTime = utcMinutes + equationOfTime + 4 * lonDeg; // in minutes
 
             double hourAngle = mod360(trueSolarTime / 4.0) - 180; // [-180, 180)
-            
+
             // elevation and azimuth
-            double cosZenith = SinD(latDeg) * SinD(declination) 
+            double cosZenith = SinD(latDeg) * SinD(declination)
                                + CosD(latDeg) * CosD(declination) * CosD(hourAngle);
 
             double elevation = 90 - AcosD(Math.Clamp(cosZenith, -1, 1));
 
             double azimuth = Atan2D(SinD(hourAngle), CosD(hourAngle) * SinD(latDeg) - TanD(declination) * CosD(latDeg));
             azimuth = mod360(azimuth + 180); // clockwise from north
-            
+
             // refraction
             double te = TanD(elevation);
             double refraction;
@@ -225,7 +234,7 @@ namespace IMT.Thermal
         {
             if (cosZenith <= 0)
                 return 1;
-            
+
             return 1 - Math.Pow((1 - epsZenith), (1 / cosZenith));
         }
 
@@ -293,6 +302,7 @@ namespace IMT.Thermal
                 else
                     hi = mid;
             }
+
             return 0.5 * (lo + hi);
         }
 
@@ -331,11 +341,11 @@ namespace IMT.Thermal
         /// sun at or below the horizon, and globalHorizontal = directNormal * sin(elevation) + diffuseHorizontal.
         /// </summary>
         public static SolarIrradiance ClearSkyIrradiance(double elevationDeg, double altitudeM,
-                                                         double linkeTurbidity, double extraterrestrial)
+            double linkeTurbidity, double extraterrestrial)
         {
             if (elevationDeg <= 0)
                 return new SolarIrradiance() { diffuseHorizontal = 0, directNormal = 0, globalHorizontal = 0 };
-            
+
             double cosZ = SinD(elevationDeg);
             double pressure = 100 * Math.Pow((44331.514 - altitudeM) / 11880.516, 1 / 0.1902632);
             double airMass = RelativeAirmass(elevationDeg) * pressure / 101325.0;
@@ -367,13 +377,13 @@ namespace IMT.Thermal
         /// </summary>
         public static SunTimes SunriseSunset(DateTime utcDate, double latDeg, double lonDeg)
         {
-            DateTime day = new DateTime(utcDate.Year, utcDate.Month, utcDate.Day, 0,0,0, DateTimeKind.Utc);
+            DateTime day = new DateTime(utcDate.Year, utcDate.Month, utcDate.Day, 0, 0, 0, DateTimeKind.Utc);
             SolarAngles s = Solar(latDeg, lonDeg, day.AddHours(12));
             double HA = AcosD(CosD(90.833) / (CosD(latDeg) * CosD(s.declination)) - TanD(latDeg) * TanD(s.declination));
             double noon = 720 - 4 * lonDeg - s.equationOfTime;
             DateTime sunrise = day.AddMinutes(noon - 4 * HA);
             DateTime sunset = day.AddMinutes(noon + 4 * HA);
-            return new SunTimes(){ sunrise = sunrise, sunset = sunset };
+            return new SunTimes() { sunrise = sunrise, sunset = sunset };
         }
 
         /// <summary>
@@ -389,7 +399,7 @@ namespace IMT.Thermal
         /// 2021-2026, rescaled night form (IMTNS/fit_air_temperature.py): a 2.19, b 2.58, c 0.22.
         /// </summary>
         public static double AirTemperature(DateTime utc, double latDeg, double lonDeg, double minK, double maxK,
-                                            double a, double b, double c)
+            double a, double b, double c)
         {
             DateTime day = utc.AddHours(lonDeg / 15).Date;
             SunTimes today = SunriseSunset(day, latDeg, lonDeg);
@@ -413,10 +423,12 @@ namespace IMT.Thermal
             {
                 return Night(SunriseSunset((day.AddDays(-1)), latDeg, lonDeg), tMin);
             }
+
             if (utc <= today.sunset)
             {
                 return DayCurve(today, (utc - tMin).TotalHours);
             }
+
             return Night(today, (SunriseSunset(day.AddDays(1), latDeg, lonDeg).sunrise).AddHours(c));
         }
 
@@ -428,7 +440,7 @@ namespace IMT.Thermal
         /// </summary>
         public static double RelativeHumidity(double airTemperatureK, double dewPointK)
         {
-            Func<double, double> E = (double temp) => 
+            Func<double, double> E = (double temp) =>
             {
                 double t = temp - 273.15; // normalize to degrees C
                 return 6.1078 * Math.Exp(17.27 * t / (t + 237.3));
@@ -455,19 +467,16 @@ namespace IMT.Thermal
         {
             double responseTime = Math.Pow(effusivity / conductance, 2);
 
-            Func<double, double> R = (t) =>
-            {
-                return 1 - ThermalSpecialFunctions.Erfcx(Math.Sqrt(t / responseTime));
-            };
-            
+            Func<double, double> R = (t) => { return 1 - ThermalSpecialFunctions.Erfcx(Math.Sqrt(t / responseTime)); };
+
             Func<double, double> G = (x) =>
             {
-                return ThermalSpecialFunctions.Erfcx(x) + 2 * x/Math.Sqrt(Math.PI) - 1;
+                return ThermalSpecialFunctions.Erfcx(x) + 2 * x / Math.Sqrt(Math.PI) - 1;
             };
-            
+
             var n = lagSeconds.Length;
             Array.Clear(weights, 0, n);
-            
+
             for (int day = 0; day < 60; day++)
             {
                 for (int k = 0; k < n; k++)
@@ -484,20 +493,192 @@ namespace IMT.Thermal
                     }
 
                     double mean = 1 - responseTime * (G(Math.Sqrt(b / responseTime)) -
-                                  G(Math.Sqrt(a / responseTime))) / (b - a);
+                                                      G(Math.Sqrt(a / responseTime))) / (b - a);
 
                     weights[k] += mean - R(a);
                     weights[(k + 1) % n] += R(b) - mean;
-                }   
+                }
             }
-            
+
             double rest = 1 - R(60 * 86400);
 
             for (int k = 0; k < n; k++)
             {
                 double before = k > 0 ? lagSeconds[k - 1] : lagSeconds[n - 1] - 86400;
                 double after = k < n - 1 ? lagSeconds[k + 1] : 86400;
-                weights[k] += rest * (after - before)/(2*86400);
+                weights[k] += rest * (after - before) / (2 * 86400);
+            }
+        }
+
+        // The atmosphere's march (step 3, decided 2026-10-29; IMTNS/atmosphere/path_options.py): a step at most this
+        // high and this long, within 0.19 NETD of 1 m steps; and the heights the air is held to, so rays that leave
+        // the scene stay finite.
+        public const double AtmosphereStepHeight = 50, AtmosphereStepLength = 1000; // m
+        public const double AtmosphereFloor = -500, AtmosphereCeiling = 3000; // m above the ground
+
+        /// <summary>
+        /// The atmosphere, step 3: the air at <paramref name="heightM"/> above the ground, the height first held to
+        /// <see cref="AtmosphereFloor"/>..<see cref="AtmosphereCeiling"/>. Temperature falls 6.5 K/km from
+        /// <c>air.airTemperatureK</c>; pressure is 1013.25 hPa at sea level with an 8400 m scale height, so
+        /// 1013.25 exp(−(altitude + z) / 8400); water vapour's partial pressure is the saturation pressure at the
+        /// dew point (Magnus, as <see cref="RelativeHumidity"/>) with a 2000 m scale height. Outputs K, hPa, hPa.
+        /// Reference: air 297.8282 K, dew point 283.9055 K, altitude 2 m, at 450 m: 294.9032 K, 960.1685 hPa,
+        /// 10.31275 hPa; at 5000 m (held to 3000): 278.3282 K, 708.7744 hPa, 2.88170 hPa.
+        /// Thermal → Atmosphere Check holds it to IMTNS/atmosphere/path_ref.py.
+        /// </summary>
+        public static void AirAt(AtmosphereAir air, double heightM, out double temperatureK, out double pressureHPa,
+            out double vapourHPa)
+        {
+            double z = Math.Clamp(heightM, AtmosphereFloor, AtmosphereCeiling);
+
+            Func<double, double> E = (double temp) =>
+            {
+                double t = temp - 273.15; // normalize to degrees C
+                return 6.1078 * Math.Exp(17.27 * t / (t + 237.3));
+            };
+
+            temperatureK = air.airTemperatureK - 0.0065 * z;
+            pressureHPa = 1013.25 * Math.Exp(-(air.altitudeM + z) / 8400);
+            vapourHPa = E(air.dewPointK) * Math.Exp(-z / 2000);
+        }
+
+        /// <summary>
+        /// The atmosphere, step 3: march one ray from the camera, <paramref name="cameraHeightM"/> above the ground,
+        /// climbing at <paramref name="sinElevation"/> (negative looking down), and record at each of
+        /// <paramref name="ranges"/> (m, ascending, the first 0) the transmission from the camera and the path
+        /// radiance, per sub-band: <paramref name="tau"/>[m * 4 + k] and <paramref name="path"/>[m * 4 + k], k in
+        /// ThermalMath.SubBandEdges' order (W/m²/sr). At range 0, τ 1 and L 0.
+        /// <list type="bullet">
+        /// <item>The steps: between ranges s_m and s_m+1, L = s_m+1 − s_m, k = max(1, ceil(|L sinElevation| /
+        /// <see cref="AtmosphereStepHeight"/>), ceil(L / <see cref="AtmosphereStepLength"/>)) equal steps; step j runs
+        /// from s_m + L j / k to s_m + L (j + 1) / k, and takes the air (<see cref="AirAt"/>) at its middle height.</item>
+        /// <item>Each gas's amount in a step: u = x n_air l, molecules cm⁻², with n_air = p / (k_B T) per cm³ and l the
+        /// step's length in cm. Mixing ratios x: H2O e / p, CO2 425e-6, N2O 335e-9, CH4 1.95e-6, O3
+        /// <c>air.ozone</c>.</item>
+        /// <item>Curtis-Godson: per gas, running sums from the camera of u, u p, u T and u e (e in atm, hPa /
+        /// 1013.25). After each step, each gas's transmission is looked up for the whole path so far,
+        /// <paramref name="atmosphere"/>.Transmission(gas, Σu, Σup / Σu, ΣuT / Σu, Σue / Σu), and the five
+        /// multiplied: τ(through). Never the steps' own transmissions multiplied.</item>
+        /// <item>The step's own radiance, B linear in its own depth: t = τ(through) / τ(above), d = −ln t, and
+        /// L += τ(above) [B0 (1 − t) + (B1 − B0) (1 − t (1 + d)) / d], B0 and B1 the sub-band radiance
+        /// (<paramref name="subBandRadiance"/>) at the air temperatures of the step's camera end and far end. Under
+        /// d 1e-4, use (1 − t (1 + d)) / d ≈ d / 2 − d² / 3; where τ(above) is 0 the step adds nothing.</item>
+        /// </list>
+        /// Called from worker threads, one ray per call and several at once: no Unity API, nothing shared that it
+        /// writes. A table is 128 calls of up to ~500 steps, and while the camera climbs one is built every ~20 ms, so
+        /// make its few small arrays once per call, not per step. Thermal → Atmosphere Check holds it to
+        /// IMTNS/atmosphere/path_ref.py.
+        /// </summary>
+        public static void MarchRay(ThermalAtmosphere atmosphere, AtmosphereAir air, double cameraHeightM,
+            double sinElevation, double[] ranges, Action<double, double[]> subBandRadiance,
+            double[] tau, double[] path)
+        {
+            int H2O = atmosphere.GasIndex("H2O");
+            int CO2 = atmosphere.GasIndex("CO2");
+            int O3 = atmosphere.GasIndex("O3");
+            int N2O = atmosphere.GasIndex("N2O");
+            int CH4 = atmosphere.GasIndex("CH4");
+            int[] fixedGases = { CO2, N2O, CH4, O3 };
+            double[] fixedRatios = { 425e-6, 335e-9, 1.95e-6, air.ozone };
+
+            double airAmount = 0;
+            double airAmountPressure = 0;
+            double airAmountTemperature = 0;
+
+            double waterAmount = 0;
+            double waterAmountPressure = 0;
+            double waterAmountTemperature = 0;
+            double waterAmountPartialPressure = 0;
+
+            tau[0] = 1;
+            tau[1] = 1;
+            tau[2] = 1;
+            tau[3] = 1;
+            path[0] = 0;
+            path[1] = 0;
+            path[2] = 0;
+            path[3] = 0;
+
+            double[] above = new double[4] { 1, 1, 1, 1 };
+            double[] light = new double[4] { 0, 0, 0, 0 };
+            double[] through = new double[4] { 0, 0, 0, 0 };
+            double[] one = new double[4] { 0, 0, 0, 0 };
+            double[] b0 = new double[4] { 0, 0, 0, 0 };
+            double[] b1 = new double[4] { 0, 0, 0, 0 };
+
+            for (int m = 0; m < ranges.Length - 1; ++m)
+            {
+                double length = ranges[m + 1] - ranges[m];
+                int steps = Math.Max(1,
+                    (int)Math.Max(Math.Ceiling(Math.Abs(length * sinElevation) / AtmosphereStepHeight),
+                        Math.Ceiling(length / AtmosphereStepLength)));
+
+                for (int j = 0; j < steps; ++j)
+                {
+                    double a = ranges[m] + length * j / steps;
+                    double b = ranges[m] + length * (j + 1) / steps;
+                    double zNear = cameraHeightM + sinElevation * a;
+                    double zFar = cameraHeightM + sinElevation * b;
+
+                    AirAt(air, (zNear + zFar) / 2, out double T, out double p, out double e);
+
+                    double airDensity = p * 100 / (ThermalConstants.BoltzmannConstant * T) * 1e-6;
+                    double stepLengthCm = length / steps * 100;
+                    double column = airDensity * stepLengthCm;
+
+                    for (int k = 0; k < 4; k++)
+                        through[k] = 1;
+
+                    airAmount += column;
+                    airAmountPressure += column * p;
+                    airAmountTemperature += column * T;
+
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        atmosphere.Transmission(fixedGases[i], fixedRatios[i] * airAmount,
+                            airAmountPressure / airAmount, airAmountTemperature / airAmount, 0, one);
+                        for (int k = 0; k < 4; k++)
+                            through[k] *= one[k];
+                    }
+
+                    double waterStep = (e / p) * column;
+                    waterAmount += waterStep;
+                    waterAmountPressure += waterStep * p;
+                    waterAmountTemperature += waterStep * T;
+                    waterAmountPartialPressure += waterStep * (e / 1013.25);
+                    atmosphere.Transmission(H2O, waterAmount, waterAmountPressure / waterAmount,
+                        waterAmountTemperature / waterAmount, waterAmountPartialPressure / waterAmount, one);
+                    
+                    for (int k = 0; k < 4; k++)
+                        through[k] *= one[k];
+                    
+                    AirAt(air, zNear, out double Tnear, out _, out _);
+                    AirAt(air, zFar, out double Tfar, out _, out _);
+
+                    subBandRadiance(Tnear, b0);
+                    subBandRadiance(Tfar, b1);
+
+                    for (int k = 0; k < 4; k++)
+                    {
+                        if (above[k] > 0)
+                        {
+                            double stepTau = Math.Min(1, through[k] / above[k]);
+                            double stepDepth = -Math.Log(stepTau);
+                            double slopeWeight = stepDepth < 1e-4
+                                ? stepDepth / 2 - stepDepth * stepDepth / 3
+                                : (1 - stepTau * (1 + stepDepth)) / stepDepth;
+                            
+                            light[k] += above[k] * (b0[k] * (1 - stepTau) + (b1[k] - b0[k]) * slopeWeight);
+                        }
+                        above[k] = through[k];
+                    }
+                }
+
+                for (int k = 0; k < 4; k++)
+                {
+                    tau[(m + 1) * 4 + k] = above[k];
+                    path[(m + 1) * 4 + k] = light[k];
+                }
             }
         }
     }

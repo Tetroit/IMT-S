@@ -88,6 +88,13 @@ namespace IMT.Thermal
         [Tooltip("Leave empty to use the Lighting sun source, or the first directional light.")]
         [SerializeField] Light m_Sun;
 
+        [Header("Atmosphere")]
+        [Tooltip("The atmosphere's band tables (Assets/Thermal/Atmosphere/default.atmosphere). Empty: no table is built.")]
+        [SerializeField] ThermalAtmosphere m_Atmosphere;
+        [Tooltip("The camera the atmosphere's table is built for; world y 0 is the ground. Leave empty to use the main " +
+                 "camera.")]
+        [SerializeField] Camera m_Camera;
+
         // D-005: uniform in temperature, 1024 entries over 180-1200 K; since the atmosphere's step 2 one channel per
         // sub-band (ThermalMath.SubBandEdges).
         const int k_LutSamples = 1024;
@@ -121,6 +128,10 @@ namespace IMT.Thermal
         // never freed it, which a continuously running sim cannot survive.
         [NonSerialized] Texture2D m_Lut;
         [NonSerialized] float[] m_LutData;    // the LUT's entries, four per temperature, for SubBandRadiance
+        [NonSerialized] Action<double, double[]> m_LutRadiance;   // the same read on that array, for worker threads
+
+        // The atmosphere's table (step 3), built off the main thread.
+        [NonSerialized] ThermalAtmosphereTable m_AtmosphereTable;
 
         [NonSerialized] Texture2D m_SkyView;      // R: sky emissivity by sqrt(direction.y)
         [NonSerialized] Texture2D m_SkyDiffuse;   // RG: in-band, broadband diffuse factor by N.y
@@ -274,6 +285,12 @@ namespace IMT.Thermal
         /// <summary>True while the clear-sky functions are not written and the old 900 W/m2 stands in.</summary>
         public bool SunlightIsPlaceholder => m_ClearSkyMissing;
 
+        /// <summary>The atmosphere's band tables, or null.</summary>
+        public ThermalAtmosphere Atmosphere => m_Atmosphere;
+
+        /// <summary>The atmosphere's table for the shader, or null before the first push.</summary>
+        public ThermalAtmosphereTable AtmosphereTable => m_AtmosphereTable;
+
         /// <summary>How long ago each stored-heat sample is, seconds; the first, 0, is now.</summary>
         public static IReadOnlyList<double> HistoryLagSeconds => k_HistoryLags;
 
@@ -314,6 +331,9 @@ namespace IMT.Thermal
                 m_Lut = null;
             }
             m_LutData = null;
+            m_LutRadiance = null;
+            m_AtmosphereTable?.Dispose();
+            m_AtmosphereTable = null;
             DestroyTable(ref m_SkyView);
             DestroyTable(ref m_SkyDiffuse);
             m_SkyViewData = m_SkyDiffuseData = null;
@@ -403,6 +423,7 @@ namespace IMT.Thermal
             SiteConditions site = ConditionsAt(utc);
             Site = site;
             UpdateAir(utc, site);
+            PushAtmosphere(utc, site);
 
             EnsureSky();
             if (m_SkyView != null && m_SkyDiffuse != null)
@@ -818,6 +839,7 @@ namespace IMT.Thermal
             m_Lut.SetPixelData(data, 0);
             m_Lut.Apply(false, true);
             m_LutData = data;
+            m_LutRadiance = (temperatureK, result) => ReadLut(data, temperatureK, result);
         }
 
         /// <summary>
@@ -832,14 +854,60 @@ namespace IMT.Thermal
                 ThermalMath.SubBandIntegration(temperatureK, result);
                 return;
             }
+            ReadLut(m_LutData, temperatureK, result);
+        }
+
+        static void ReadLut(float[] data, double temperatureK, double[] result)
+        {
             double x = Math.Max(0.0, Math.Min(1.0, (temperatureK - k_LutLowK) / (k_LutHighK - k_LutLowK)))
                      * (k_LutSamples - 1);
             int i = Math.Min((int)Math.Floor(x), k_LutSamples - 2);
             for (int k = 0; k < 4; k++)
             {
-                float a = m_LutData[i * 4 + k], b = m_LutData[(i + 1) * 4 + k];
+                float a = data[i * 4 + k], b = data[(i + 1) * 4 + k];
                 result[k] = a + (b - a) * (x - i);
             }
+        }
+
+        // ---------------------------------------------------------------------- atmosphere
+
+        /// <summary>
+        /// The atmosphere's table (step 3): started off the main thread for the camera's height and the air now when
+        /// they have moved, taken when done, and bound for the shader every push.
+        /// </summary>
+        void PushAtmosphere(DateTime utc, SiteConditions site)
+        {
+            if (m_AtmosphereTable == null)
+                m_AtmosphereTable = new ThermalAtmosphereTable();
+            Camera camera = m_Camera != null ? m_Camera : Camera.main;
+            if (camera != null && m_LutRadiance != null)
+            {
+                var inputs = new ThermalAtmosphereTable.Inputs
+                {
+                    air = AtmosphereAirAt(utc, site),
+                    cameraHeightM = camera.transform.position.y,
+                    farM = camera.farClipPlane,
+                };
+                m_AtmosphereTable.Update(m_Atmosphere, inputs, m_LutRadiance);
+            }
+            m_AtmosphereTable.Push();
+        }
+
+        /// <summary>
+        /// The ground's air for the atmosphere's march at <paramref name="utc"/>: the air temperature of the last
+        /// update, the site's dew point and altitude, and ozone by the season, 25 ppb at the December solstice to 40
+        /// at the June one (the values IMTNS/atmosphere measured with), smooth between.
+        /// </summary>
+        public AtmosphereAir AtmosphereAirAt(DateTime utc, SiteConditions site)
+        {
+            double day = utc.DayOfYear - 1 + utc.TimeOfDay.TotalDays;
+            return new AtmosphereAir
+            {
+                airTemperatureK = AirTemperature,
+                dewPointK = site.dewPointK,
+                altitudeM = site.altitude,
+                ozone = 32.5e-9 + 7.5e-9 * Math.Cos(2 * Math.PI * (day - 171) / 365.25),
+            };
         }
 
         // ---------------------------------------------------------------------- sky tables

@@ -11,8 +11,8 @@ namespace IMT.Thermal
     /// 10.22-9.26 (ozone) and 9.26-8 µm, the edges on ThermalMath.BandIntegration's samples so the sub-bands' radiances
     /// sum to the band's. HITRAN's lines with Roberts et al.'s (1976) water vapour continuum, licence-clean; the
     /// citations are in <see cref="Provenance"/>.
-    /// The band model (step 3, Lucas's physics) builds each slant path from these, layer by layer; this class only
-    /// holds and reads the tables.
+    /// The band model (step 3, Lucas's physics: ThermalMath.MarchRay) builds each path from these, step by step along
+    /// a ray from the camera; this class only holds and reads the tables.
     /// </summary>
     public class ThermalAtmosphere : ScriptableObject
     {
@@ -73,6 +73,9 @@ namespace IMT.Thermal
         /// <paramref name="pressureHPa"/>, <paramref name="temperatureK"/>, and for H2O its partial pressure
         /// <paramref name="partialAtm"/> (atm; ignored for the others). Multilinear in (p, T, e, log10 u), clamped to the
         /// tables' grids, exactly as bake_atmosphere.lookup reads them. u ≤ 0 is an empty path: 1 in every sub-band.
+        /// Below the first u entry (a path under ~0.3 m for H2O, ~1 m for CO2 and O3, ~6 m for CH4) the absorption
+        /// falls linearly to 0, 1 − τ = (1 − τ(u_first)) u / u_first: the weak-line limit, where clamping to the first
+        /// entry cost up to 0.46 NETD at 0.1 m (decided 2026-10-29, IMTNS/atmosphere/path_options.py short).
         /// <paramref name="result"/> takes <see cref="SubBands"/> values.
         /// </summary>
         public void Transmission(int gas, double u, double pressureHPa, double temperatureK, double partialAtm,
@@ -115,6 +118,11 @@ namespace IMT.Thermal
                     }
                 }
             }
+
+            double first = Math.Pow(10, g.log10UStart);
+            if (u < first)
+                for (int k = 0; k < SubBands; k++)
+                    result[k] = 1 - (1 - result[k]) * (u / first);
         }
 
         static void Weight(float[] grid, double x, out int i, out double f)
