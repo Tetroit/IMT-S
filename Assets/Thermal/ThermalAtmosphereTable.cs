@@ -29,14 +29,21 @@ namespace IMT.Thermal
         // 0.01 K of dew point, 0.14 per 0.5 m of camera height).
         const double k_HeightStep = 0.15, k_AirStep = 0.002, k_DewStep = 0.001, k_OzoneStep = 0.1e-9;
 
+        // ThermalAtmosphere.hlsl's names; the Atmosphere Check binds its own tables by them too.
+        public const string TauName = "_ThermalAtmosphereTau", PathName = "_ThermalAtmospherePath";
+        public const string ParamsName = "_ThermalAtmosphereParams";
+
         // In a class of their own, so they are looked up on the first Push and not by the layout and Build, which the
         // Atmosphere Check's harness runs outside Unity.
         static class Ids
         {
-            public static readonly int Tau = Shader.PropertyToID("_ThermalAtmosphereTau");
-            public static readonly int Path = Shader.PropertyToID("_ThermalAtmospherePath");
-            public static readonly int Params = Shader.PropertyToID("_ThermalAtmosphereParams");
+            public static readonly int Tau = Shader.PropertyToID(TauName);
+            public static readonly int Path = Shader.PropertyToID(PathName);
+            public static readonly int Params = Shader.PropertyToID(ParamsName);
         }
+
+        /// <summary>The layout as the shader takes it: directions, ranges, the range scale and the last range.</summary>
+        public static Vector4 Params(double farM) => new Vector4(Directions, Ranges, (float)RangeScale, (float)farM);
 
         /// <summary>What one table is built for.</summary>
         public struct Inputs
@@ -99,6 +106,40 @@ namespace IMT.Thermal
             {
                 throw e.Flatten().InnerExceptions[0];
             }
+        }
+
+        /// <summary>
+        /// The table at a point (<paramref name="x"/>, <paramref name="y"/>, <paramref name="z"/>) metres from the camera,
+        /// world space, as the shader's ThermalAtmosphereAlong (ThermalAtmosphere.hlsl) reads it: the row and column
+        /// the point falls between, from inverting the layout, and the four entries around it blended linearly. Beyond
+        /// <paramref name="farM"/> the last column; above or below every row the outermost. <paramref name="tau"/> and
+        /// <paramref name="path"/> take four.
+        /// </summary>
+        public static void Lookup(float[] tauTable, float[] pathTable, double farM, double x, double y, double z,
+                                  double[] tau, double[] path)
+        {
+            double s = Math.Sqrt(x * x + y * y + z * z);
+            double sinElevation = s > 0 ? y / s : 0;
+            double v = Math.Sign(sinElevation) * Math.Sqrt(Math.Abs(sinElevation));
+            double row = Math.Max(0, Math.Min(Directions - 1, (v + 1) * 0.5 * (Directions - 1)));
+            double column = Math.Max(0, Math.Min(Ranges - 1,
+                Math.Log(1 + s / RangeScale) / Math.Log(1 + farM / RangeScale) * (Ranges - 1)));
+            int r = Math.Min((int)Math.Floor(row), Directions - 2);
+            int c = Math.Min((int)Math.Floor(column), Ranges - 2);
+            double fr = row - r, fc = column - c;
+            for (int k = 0; k < 4; k++)
+            {
+                int i00 = (r * Ranges + c) * 4 + k, i01 = i00 + 4, i10 = i00 + Ranges * 4, i11 = i10 + 4;
+                tau[k] = Blend(tauTable[i00], tauTable[i01], tauTable[i10], tauTable[i11], fc, fr);
+                path[k] = Blend(pathTable[i00], pathTable[i01], pathTable[i10], pathTable[i11], fc, fr);
+            }
+        }
+
+        // HLSL's lerp, x + s (y - x): across the columns, then the rows.
+        static double Blend(double a00, double a01, double a10, double a11, double fc, double fr)
+        {
+            double rowR = a00 + fc * (a01 - a00), rowR1 = a10 + fc * (a11 - a10);
+            return rowR + fr * (rowR1 - rowR);
         }
 
         /// <summary>Two arrays per direction for <see cref="Build"/>, kept from build to build.</summary>
@@ -240,8 +281,7 @@ namespace IMT.Thermal
             EnsureTextures();
             Shader.SetGlobalTexture(Ids.Tau, m_Tau);
             Shader.SetGlobalTexture(Ids.Path, m_Path);
-            Shader.SetGlobalVector(Ids.Params, new Vector4(Directions, Ranges, (float)RangeScale,
-                                                           m_HasBuilt ? (float)m_Built.farM : 1));
+            Shader.SetGlobalVector(Ids.Params, Params(m_HasBuilt ? m_Built.farM : 1));
         }
 
         void EnsureTextures()

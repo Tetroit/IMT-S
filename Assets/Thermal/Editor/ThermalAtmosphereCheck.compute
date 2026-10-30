@@ -1,0 +1,37 @@
+// Thermal > Atmosphere Check's kernels (the atmosphere, step 4): ThermalAtmosphere.hlsl's ThermalAtmosphereAlong, the
+// table read Thermal/Base does, run on the GPU at given points. ThermalAtmosphereCheck.cs compares them with
+// ThermalAtmosphereTable.Lookup on the CPU, on a table whose entries encode their row, column and channel and on a table
+// the march built.
+
+#pragma kernel Echo
+#pragma kernel Lookup
+
+#include "../ThermalAtmosphere.hlsl"
+
+uint _Count;
+StructuredBuffer<float> _Points;          // x y z per point, metres from the camera, world space
+RWStructuredBuffer<float4> _TauOut;
+RWStructuredBuffer<float4> _PathOut;
+
+// The check's own plumbing, independent of the lookup: every float read back, so a buffer fault shows here and not as
+// a wrong read.
+RWStructuredBuffer<float> _Echo;
+
+[numthreads(64, 1, 1)]
+void Echo(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Count * 3)
+        _Echo[id.x] = _Points[id.x];
+}
+
+[numthreads(64, 1, 1)]
+void Lookup(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Count)
+        return;
+    float3 p = float3(_Points[id.x * 3], _Points[id.x * 3 + 1], _Points[id.x * 3 + 2]);
+    float4 tau, path;
+    ThermalAtmosphereAlong(p, tau, path);
+    _TauOut[id.x] = tau;
+    _PathOut[id.x] = path;
+}

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEditor;
 using UnityEngine;
@@ -18,6 +19,11 @@ namespace IMT.Thermal
     /// <item><c>ThermalAtmosphereTable</c>: its direction and range layout against the reference's; a parallel build
     /// equal to a serial one bit for bit; and with a ThermalEnvironment in the scene, the table in its textures equal
     /// to a fresh build of the inputs it says it was built for.</item>
+    /// <item>The table's read (step 4). On the CPU, <c>ThermalAtmosphereTable.Lookup</c>: at every node it returns that
+    /// node's entry, and between nodes the linear blend, on a table whose entries encode their row, column and channel.
+    /// On the GPU, <c>ThermalAtmosphereAlong</c> (ThermalAtmosphere.hlsl, Editor/ThermalAtmosphereCheck.compute) against
+    /// the CPU's at 2006 points, on that table and on one the march built: τ to 3e-5, L_path to 3e-4 W/m²/sr (0.01
+    /// NETD), the GPU's row and column being float.</item>
     /// </list>
     /// Its harness passed a march written from the reference (τ 2e-16, L_path 1e-14) and caught thirteen broken ones:
     /// the steps' own transmissions multiplied, the length in metres, e in hPa, 1 − τ(through), the air at the camera
@@ -240,6 +246,7 @@ namespace IMT.Thermal
             else
             {
                 summary = RunCore(atmosphere, Report);
+                RunGpu(atmosphere, Report);
                 RunScene(Report);
             }
             if (failed == 0)
@@ -375,6 +382,50 @@ namespace IMT.Thermal
             bool layoutOk = layout <= 1e-12;
             report(layoutOk, $"the table's directions and ranges against the reference's: off by {E(layout)}   {Ok(layoutOk)}");
 
+            // The CPU's read of the table (ThermalAtmosphereTable.Lookup), which the GPU's must equal, on a table whose
+            // entries encode their row, column and channel: every node returns its own entry, which ties the read to
+            // the layout above, and between nodes the read is the code's linear function.
+            float[] codedTau = Coded(true), codedPath = Coded(false);
+            var tau4 = new double[4];
+            var path4 = new double[4];
+            double atNodes = 0;
+            for (int r = 0; r < ThermalAtmosphereTable.Directions; r++)
+            {
+                double sine = ThermalAtmosphereTable.DirectionSine(r), cosine = Math.Sqrt(Math.Max(0, 1 - sine * sine));
+                for (int c = 1; c < ThermalAtmosphereTable.Ranges; c++)   // range 0 has no direction
+                {
+                    ThermalAtmosphereTable.Lookup(codedTau, codedPath, 40000, nodes[c] * cosine, nodes[c] * sine, 0,
+                                                  tau4, path4);
+                    int at = (r * ThermalAtmosphereTable.Ranges + c) * 4;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        atNodes = Worse(atNodes, Math.Abs(tau4[k] - codedTau[at + k]));
+                        atNodes = Worse(atNodes, Math.Abs(path4[k] - codedPath[at + k]));
+                    }
+                }
+            }
+            bool nodesOk = atNodes <= 1e-9;
+            report(nodesOk, $"the CPU's read at each of the table's nodes, its own entry: off by {E(atNodes)}   {Ok(nodesOk)}");
+
+            var random = new System.Random(20261030);
+            double between = 0;
+            for (int i = 0; i < 4000; i++)
+            {
+                double sine = 2 * random.NextDouble() - 1, cosine = Math.Sqrt(1 - sine * sine);
+                double s = Math.Exp(Math.Log(0.1) + random.NextDouble() * (Math.Log(40000) - Math.Log(0.1)));
+                ThermalAtmosphereTable.Lookup(codedTau, codedPath, 40000, s * cosine, s * sine, 0, tau4, path4);
+                double row = (Math.Sign(sine) * Math.Sqrt(Math.Abs(sine)) + 1) / 2 * (ThermalAtmosphereTable.Directions - 1);
+                double column = Math.Log(1 + s / ThermalAtmosphereTable.RangeScale) /
+                                Math.Log(1 + 40000 / ThermalAtmosphereTable.RangeScale) * (ThermalAtmosphereTable.Ranges - 1);
+                for (int k = 0; k < 4; k++)
+                {
+                    between = Worse(between, Math.Abs(tau4[k] - CodedValue(true, row, column, k)));
+                    between = Worse(between, Math.Abs(path4[k] - CodedValue(false, row, column, k)));
+                }
+            }
+            bool betweenOk = between <= 1e-9;
+            report(betweenOk, $"the CPU's read between nodes, 4000 points: off the linear blend by {E(between)}   {Ok(betweenOk)}");
+
             if (!marchMissing)
             {
                 var inputs = new ThermalAtmosphereTable.Inputs { air = k_Airs[0], cameraHeightM = 900, farM = 40000 };
@@ -446,6 +497,190 @@ namespace IMT.Thermal
                 inputs.air.dewPointK, inputs.air.ozone * 1e9, inputs.farM, differ, Ok(ok)));
             Debug.Log(string.Format(CultureInfo.InvariantCulture, "[Atmosphere] building it here took {0:F0} ms serially " +
                                     "and {1:F0} ms with the directions in parallel", serial, parallel));
+        }
+
+        // Entries that encode where they are, exact in float: τ 0.25 k + c / 256 + r / 128, L 3 − 0.25 k + c / 128 − r / 64.
+        // A read that swaps the rows and columns, flips the rows, mixes the channels or misplaces a weight is off by a
+        // whole 1/256 or more.
+        static float[] Coded(bool tau)
+        {
+            var a = new float[ThermalAtmosphereTable.Directions * ThermalAtmosphereTable.Ranges * 4];
+            for (int r = 0; r < ThermalAtmosphereTable.Directions; r++)
+                for (int c = 0; c < ThermalAtmosphereTable.Ranges; c++)
+                    for (int k = 0; k < 4; k++)
+                        a[(r * ThermalAtmosphereTable.Ranges + c) * 4 + k] = (float)CodedValue(tau, r, c, k);
+            return a;
+        }
+
+        static double CodedValue(bool tau, double row, double column, int k) =>
+            tau ? 0.25 * k + column / 256 + row / 128 : 3 - 0.25 * k + column / 128 - row / 64;
+
+        // The GPU's read (ThermalAtmosphere.hlsl, as Thermal/Base runs it) against the CPU's, at points from straight
+        // down to straight up, from the camera out past the last range.
+        const string k_Shader = "Assets/Thermal/Editor/ThermalAtmosphereCheck.compute";
+        const double k_GpuTauTolerance = 3e-5;     // the GPU's float row and column
+        const double k_GpuPathTolerance = 3e-4;    // W/m²/sr, 0.01 NETD
+
+        static void RunGpu(ThermalAtmosphere atmosphere, Action<bool, string> report)
+        {
+            var shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(k_Shader);
+            if (shader == null)
+            {
+                report(false, $"{k_Shader} is missing   FAIL");
+                return;
+            }
+            int errors = 0;
+            foreach (ShaderMessage m in ShaderUtil.GetComputeShaderMessages(shader))
+            {
+                if (m.severity != UnityEditor.Rendering.ShaderCompilerMessageSeverity.Error)
+                    continue;
+                errors++;
+                Debug.LogError($"[Atmosphere] does not compile: {m.message} ({m.file}:{m.line})");
+            }
+            if (errors > 0)
+            {
+                report(false, "the GPU's read does not compile   FAIL");
+                return;
+            }
+
+            float[] points = Points();
+            int count = points.Length / 3;
+            using var input = new ComputeBuffer(points.Length, sizeof(float));
+            input.SetData(points);
+
+            // The plumbing first, so a buffer fault never passes for a read fault.
+            int echoKernel = shader.FindKernel("Echo");
+            using (var echo = new ComputeBuffer(points.Length, sizeof(float)))
+            {
+                var nan = new float[points.Length];
+                for (int i = 0; i < nan.Length; i++)
+                    nan[i] = float.NaN;
+                echo.SetData(nan);
+                shader.SetBuffer(echoKernel, "_Points", input);
+                shader.SetBuffer(echoKernel, "_Echo", echo);
+                shader.SetInt("_Count", count);
+                shader.Dispatch(echoKernel, (points.Length + 63) / 64, 1, 1);
+                var got = new float[points.Length];
+                echo.GetData(got);
+                int differ = 0;
+                for (int i = 0; i < points.Length; i++)
+                    if (BitConverter.SingleToInt32Bits(got[i]) != BitConverter.SingleToInt32Bits(points[i]))
+                        differ++;
+                bool ok = differ == 0;
+                report(ok, $"the check's own buffer: {points.Length - differ} of {points.Length} floats read back exactly   {Ok(ok)}");
+                if (!ok)
+                    return;
+            }
+
+            CompareGpu(shader, input, points, Coded(true), Coded(false), 40000,
+                       "a table whose entries encode their row, column and channel", report);
+
+            var inputs = new ThermalAtmosphereTable.Inputs { air = k_Airs[0], cameraHeightM = 900, farM = 40000 };
+            int size = ThermalAtmosphereTable.Directions * ThermalAtmosphereTable.Ranges * 4;
+            float[] tau = new float[size], path = new float[size];
+            try
+            {
+                ThermalAtmosphereTable.Build(atmosphere, inputs, ThermalMath.SubBandIntegration, tau, path, true);
+            }
+            catch (NotImplementedException)
+            {
+                Debug.LogWarning("[Atmosphere] MarchRay is not written yet: the GPU's read of a marched table is not checked");
+                return;
+            }
+            CompareGpu(shader, input, points, tau, path, 40000, "the march's table (case 0, camera 900 m, far 40 km)",
+                       report);
+        }
+
+        static void CompareGpu(ComputeShader shader, ComputeBuffer input, float[] points, float[] tauTable,
+                               float[] pathTable, double farM, string label, Action<bool, string> report)
+        {
+            int count = points.Length / 3;
+            Texture2D tauTexture = NewTable(tauTable), pathTexture = NewTable(pathTable);
+            var gotTau = new Vector4[count];
+            var gotPath = new Vector4[count];
+            try
+            {
+                int kernel = shader.FindKernel("Lookup");
+                using var tauOut = new ComputeBuffer(count, 4 * sizeof(float));
+                using var pathOut = new ComputeBuffer(count, 4 * sizeof(float));
+                var nan = new Vector4[count];
+                for (int i = 0; i < count; i++)
+                    nan[i] = new Vector4(float.NaN, float.NaN, float.NaN, float.NaN);   // a read never written shows
+                tauOut.SetData(nan);
+                pathOut.SetData(nan);
+                shader.SetBuffer(kernel, "_Points", input);
+                shader.SetBuffer(kernel, "_TauOut", tauOut);
+                shader.SetBuffer(kernel, "_PathOut", pathOut);
+                shader.SetTexture(kernel, ThermalAtmosphereTable.TauName, tauTexture);
+                shader.SetTexture(kernel, ThermalAtmosphereTable.PathName, pathTexture);
+                shader.SetVector(ThermalAtmosphereTable.ParamsName, ThermalAtmosphereTable.Params(farM));
+                shader.SetInt("_Count", count);
+                shader.Dispatch(kernel, (count + 63) / 64, 1, 1);
+                tauOut.GetData(gotTau);
+                pathOut.GetData(gotPath);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tauTexture);
+                UnityEngine.Object.DestroyImmediate(pathTexture);
+            }
+
+            var tau4 = new double[4];
+            var path4 = new double[4];
+            double offTau = 0, offPath = 0;
+            string at = "";
+            for (int i = 0; i < count; i++)
+            {
+                float x = points[i * 3], y = points[i * 3 + 1], z = points[i * 3 + 2];
+                ThermalAtmosphereTable.Lookup(tauTable, pathTable, farM, x, y, z, tau4, path4);
+                for (int k = 0; k < 4; k++)
+                {
+                    double dt = Math.Abs(gotTau[i][k] - tau4[k]), dp = Math.Abs(gotPath[i][k] - path4[k]);
+                    if (!(dt <= offTau) || !(dp <= offPath))
+                        at = string.Format(CultureInfo.InvariantCulture,
+                            " (worst at ({0:G5}, {1:G5}, {2:G5}) m, sub-band {3}: GPU τ {4:G7}, L {5:G7}; CPU {6:G7}, {7:G7})",
+                            x, y, z, k, gotTau[i][k], gotPath[i][k], tau4[k], path4[k]);
+                    offTau = Worse(offTau, dt);
+                    offPath = Worse(offPath, dp);
+                }
+            }
+            bool ok = offTau <= k_GpuTauTolerance && offPath <= k_GpuPathTolerance;
+            report(ok, string.Format(CultureInfo.InvariantCulture,
+                "the GPU's read against the CPU's, {0}, {1} points: τ off by {2}, L_path by {3} W/m²/sr{4}   {5}", label,
+                count, E(offTau), E(offPath), ok ? "" : at, Ok(ok)));
+        }
+
+        static Texture2D NewTable(float[] data)
+        {
+            var texture = new Texture2D(ThermalAtmosphereTable.Ranges, ThermalAtmosphereTable.Directions,
+                                        TextureFormat.RGBAFloat, false, true)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            texture.SetPixelData(data, 0);
+            texture.Apply(false, false);
+            return texture;
+        }
+
+        // Every kind of point the frag meets: the camera itself, straight down and up, level, past the last range, then
+        // 2000 at random, half of them near the horizon, from 0.1 m to 60 km.
+        static float[] Points()
+        {
+            var list = new List<float> { 0, 0, 0, 0, -900, 0, 0, 100, 0, 1000, 0, 0, 0, 0, 50000, 3, -2, 1 };
+            var random = new System.Random(20261031);
+            for (int i = 0; i < 2000; i++)
+            {
+                double u = 2 * random.NextDouble() - 1;
+                double sine = i % 2 == 0 ? u : Math.Sign(u) * Math.Pow(Math.Abs(u), 4);
+                double cosine = Math.Sqrt(1 - sine * sine), azimuth = 2 * Math.PI * random.NextDouble();
+                double s = Math.Exp(Math.Log(0.1) + random.NextDouble() * (Math.Log(60000) - Math.Log(0.1)));
+                list.Add((float)(s * cosine * Math.Cos(azimuth)));
+                list.Add((float)(s * sine));
+                list.Add((float)(s * cosine * Math.Sin(azimuth)));
+            }
+            return list.ToArray();
         }
 
         static double Worse(double worst, double d) => double.IsNaN(d) ? double.PositiveInfinity : Math.Max(worst, d);

@@ -2,6 +2,7 @@
 #define THERMAL_COMMON_INCLUDED
 
 #include "ThermalPhysics.hlsl"
+#include "ThermalAtmosphere.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
 // Radiance per sub-band: the atmosphere's four (ThermalAtmosphere; ThermalMath.SubBandEdges), 14-12.5, 12.5-10.22,

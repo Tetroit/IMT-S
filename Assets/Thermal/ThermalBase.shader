@@ -160,7 +160,17 @@ Shader "Thermal/Base"
                 float4 La = _ThermalAirSubBandRadiance;     // the same for every pixel: once per frame, on the CPU
                 float4 reflected = (1 - F) * La + skyD.x * La;
 
-                return BandRadiance(surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected);
+                // What leaves the surface towards the camera: its own emission and what it reflects.
+                float4 leaving = surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected;
+
+                // Through the air to the camera, per sub-band (the atmosphere, step 4): what survives of it, and what
+                // the air adds on the way (ThermalAtmosphere.hlsl).
+                float3 camToPixel = IN.positionWS - _WorldSpaceCameraPos;
+                float4 tau;
+                float4 path;
+                ThermalAtmosphereAlong(camToPixel, tau, path);
+                float4 arriving = tau * leaving + path;
+                return BandRadiance(arriving);
             }
             ENDHLSL
         }
