@@ -1,5 +1,19 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-6939120647084813227
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 36e8b8e09d64d5d4dbe9c5ce5a539b45, type: 3}
+  m_Name: ThermalTerrainFeature
+  m_EditorClassIdentifier: Assembly-CSharp::IMT.Thermal.ThermalTerrainFeature
+  m_Active: 1
+  m_Event: 300
 --- !u!114 &-5877949239422992062
 MonoBehaviour:
   m_ObjectHideFlags: 1
@@ -69,7 +83,8 @@ MonoBehaviour:
     probeVolumeBlendStatesCS: {fileID: 0}
   m_RendererFeatures:
   - {fileID: -5877949239422992062}
-  m_RendererFeatureMap: 42416a384f546dael
+  - {fileID: -6939120647084813227}
+  m_RendererFeatureMap: 42416a384f546dae5554ee58894ab39fl
   xrSystemData: {fileID: 0}
   postProcessData: {fileID: 0}
   m_AssetVersion: 3
