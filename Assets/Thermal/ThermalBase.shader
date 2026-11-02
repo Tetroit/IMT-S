@@ -47,7 +47,7 @@ Shader "Thermal/Base"
             // buffer, which only this variant reads. The override material needs GPU instancing on too.
             #pragma multi_compile_instancing
 
-            #include "ThermalCommon.hlsl"
+            #include "ThermalSurfaceRadiance.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
 
             struct Attributes
@@ -128,49 +128,19 @@ Shader "Thermal/Base"
                     emissivity = painted.g;
                 }
 
-                float S = MainLightRealtimeShadow(TransformWorldToShadowCoord(IN.positionWS));
-                float F = SkyViewFactor(N);
-
-                float2 skyD = SkyDiffuse(N.y);
-
-                ThermalEnvironment env = MakeEnvironment();
-                ThermalSurface surf;
-                surf.emissivity = emissivity;
-                surf.solarAbsorptivity = absorptivity;
-                surf.skyViewFactor = F;
-                surf.sunVisibility = S;
-                surf.skyDiffuse = skyD.x;
-                surf.skyDiffuseBroadband = skyD.y;
-                surf.windA = _ThermalWindA;
-                surf.windB = _ThermalWindB;
-                surf.hasBack = _ThermalBackside;
-
-                // Masonry and ground answer to the past few hours, thin objects and vegetation to now (item 5 step 2).
-                // The row is one per draw, so every pixel of a draw takes the same branch.
-                EnergyBalance b;
-                if (_ThermalHistoryRow >= 0)
-                    b = MakeHistoryBalance(N, surf, MakeHistory((int)_ThermalHistoryRow));
-                else
-                    b = MakeBalance(N, surf, env);
-                float surfaceTemperature = SurfaceTemperature(b);
-
-                // Per sub-band (ThermalCommon), summed for the camera at the end.
-                float4 surfaceRadiance = ThermalSubBandRadiance(surfaceTemperature);
-
-                float4 La = _ThermalAirSubBandRadiance;     // the same for every pixel: once per frame, on the CPU
-                float4 reflected = (1 - F) * La + skyD.x * La;
-
-                // What leaves the surface towards the camera: its own emission and what it reflects.
-                float4 leaving = surfaceRadiance * surf.emissivity + (1 - surf.emissivity) * reflected;
-
-                // Through the air to the camera, per sub-band (the atmosphere, step 4): what survives of it, and what
-                // the air adds on the way (ThermalAtmosphere.hlsl).
-                float3 camToPixel = IN.positionWS - _WorldSpaceCameraPos;
-                float4 tau;
-                float4 path;
-                ThermalAtmosphereAlong(camToPixel, tau, path);
-                float4 arriving = tau * leaving + path;
-                return BandRadiance(arriving);
+                // The rest is the sim's, shared with every shader that draws for the thermal camera
+                // (ThermalSurfaceRadiance.hlsl).
+                ThermalPixel p;
+                p.positionWS = IN.positionWS;
+                p.normalWS = N;
+                p.absorptivity = absorptivity;
+                p.emissivity = emissivity;
+                p.sunVisibility = MainLightRealtimeShadow(TransformWorldToShadowCoord(IN.positionWS));
+                p.windA = _ThermalWindA;
+                p.windB = _ThermalWindB;
+                p.hasBack = _ThermalBackside;
+                p.historyRow = _ThermalHistoryRow;
+                return ThermalRadianceAtCamera(p);
             }
             ENDHLSL
         }
