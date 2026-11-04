@@ -896,17 +896,20 @@ namespace IMT.Thermal
         /// <summary>
         /// The ground's air for the atmosphere's march at <paramref name="utc"/>: the air temperature of the last
         /// update, the site's dew point and altitude, and ozone by the season, 25 ppb at the December solstice to 40
-        /// at the June one (the values IMTNS/atmosphere measured with), smooth between.
+        /// at the June one (the values IMTNS/atmosphere measured with), smooth between; and the upper air's season on
+        /// the same cosine, all summer standard at the June solstice and all winter at the December one.
         /// </summary>
         public AtmosphereAir AtmosphereAirAt(DateTime utc, SiteConditions site)
         {
             double day = utc.DayOfYear - 1 + utc.TimeOfDay.TotalDays;
+            double season = Math.Cos(2 * Math.PI * (day - 171) / 365.25);
             return new AtmosphereAir
             {
                 airTemperatureK = AirTemperature,
                 dewPointK = site.dewPointK,
                 altitudeM = site.altitude,
-                ozone = 32.5e-9 + 7.5e-9 * Math.Cos(2 * Math.PI * (day - 171) / 365.25),
+                ozone = 32.5e-9 + 7.5e-9 * season,
+                summer = 0.5 + 0.5 * season,
             };
         }
 

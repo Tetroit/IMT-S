@@ -54,6 +54,7 @@ namespace IMT.Thermal
         public double dewPointK; // the site's
         public double altitudeM; // the ground above sea level
         public double ozone; // mixing ratio, e.g. 40e-9
+        public double summer; // the air above 3 km: the summer standard's weight, 1 at the June solstice, 0 at the December one
     }
 
     public static class ThermalMath
@@ -540,6 +541,37 @@ namespace IMT.Thermal
             temperatureK = air.airTemperatureK - 0.0065 * z;
             pressureHPa = 1013.25 * Math.Exp(-(air.altitudeM + z) / 8400);
             vapourHPa = E(air.dewPointK) * Math.Exp(-z / 2000);
+        }
+
+        // The march to the top (step 5, decided 2026-11-03): it stops here, within 0.1 NETD of 60 km.
+        public const double AtmosphereTop = 50000; // m above the ground
+
+        /// <summary>
+        /// The atmosphere, step 5: the air at <paramref name="heightM"/> above the ground from
+        /// <see cref="AtmosphereCeiling"/> to <see cref="AtmosphereTop"/>, the height first held to that range: the
+        /// standard upper air (<see cref="ThermalUpperAir.Standard"/>, blended by <c>air.summer</c>) joined to
+        /// <see cref="AirAt"/>'s air at the ceiling. With z the held height, km = (altitude + z) / 1000 and km3 the
+        /// ceiling's (altitude + AtmosphereCeiling) / 1000, both above sea level; T3, p3 and e3 AirAt's at the
+        /// ceiling; and T_std, p_std, x_std, o_std the standard's temperature, pressure and H2O and O3 mixing ratios:
+        /// <list type="bullet">
+        /// <item>pressure: p = p3 · p_std(km) / p_std(km3);</item>
+        /// <item>temperature: the standard's plus the ceiling's offset from it, the offset shrinking linearly to 0 at
+        /// the tropopause (<see cref="ThermalUpperAir.TropopauseKm"/>(air.summer)) and 0 above it:
+        /// T = T_std(km) + (T3 − T_std(km3)) w, w = clamp((trop − km) / (trop − km3), 0, 1);</item>
+        /// <item>water vapour: its mixing ratio the standard's times the ceiling's ratio to it, that ratio shrinking
+        /// in log to 1 at the tropopause: x = x_std(km) (x3 / x_std(km3))^w, x3 = e3 / p3; out e = x p (hPa);</item>
+        /// <item>ozone: the standard's mixing ratio, o_std(km). (Below the ceiling it is <c>air.ozone</c>, a step at
+        /// 3 km of a few ppb.) N2O and CH4 stay at the ground's ratios all the way up (measured within 0.1 NETD).</item>
+        /// </list>
+        /// At the ceiling it gives AirAt's temperature, pressure and vapour. Outputs K, hPa, hPa and a fraction.
+        /// Reference (air 297.8282 K, dew point 283.9055 K, altitude 2 m, summer 1): at 11111 m 227.903223 K, 238.542398
+        /// hPa, 0.0185547290 hPa, ozone 1.83774e-7; at 3000 m 278.3282 K, 708.774423 hPa, 2.88170133 hPa, 4.22312e-8.
+        /// Thermal → Atmosphere Check holds it to IMTNS/atmosphere/path_ref.py (air_above).
+        /// </summary>
+        public static void AirAbove(AtmosphereAir air, double heightM, out double temperatureK, out double pressureHPa,
+            out double vapourHPa, out double ozone)
+        {
+            throw new NotImplementedException();
         }
 
         /// <summary>
