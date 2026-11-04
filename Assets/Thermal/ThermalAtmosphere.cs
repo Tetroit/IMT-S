@@ -13,6 +13,9 @@ namespace IMT.Thermal
     /// citations are in <see cref="Provenance"/>.
     /// The band model (step 3, Lucas's physics: ThermalMath.MarchRay) builds each path from these, step by step along
     /// a ray from the camera; this class only holds and reads the tables.
+    /// Since 2026-11-03 (thermal-atmosphere/2, step 5) the tables reach 65 hPa and 210 K, and H2O comes split: "H2O
+    /// lines", its lines alone (no e axis), and the continuum on its own, <see cref="ContinuumTransmission"/>, read by
+    /// D = Σ f(T) e u along the path (<see cref="ContinuumFactor"/>).
     /// </summary>
     public class ThermalAtmosphere : ScriptableObject
     {
@@ -34,6 +37,12 @@ namespace IMT.Thermal
         [SerializeField] float[] m_Temperature;     // K
         [SerializeField] Gas[] m_Gases;
         [SerializeField, TextArea(3, 12)] string m_Provenance;
+
+        // H2O's continuum on its own: per sub-band, the transmission of a path of D, linear in log10 D
+        [SerializeField] float m_ContinuumT0, m_ContinuumTRef;                  // K: f(T) = exp(t0 (1/T − 1/tRef))
+        [SerializeField] float m_ContinuumLog10DStart, m_ContinuumLog10DStep;   // D in atm molecules cm⁻², log10
+        [SerializeField] int m_ContinuumCount;
+        [SerializeField] float[] m_Continuum;                                   // [D, sub-band], row-major
 
         public IReadOnlyList<float> BandEdges => m_BandEdges;
         public float WeightTemperature => m_WeightTemperature;
@@ -66,6 +75,55 @@ namespace IMT.Thermal
             m_Temperature = temperature;
             m_Gases = gases;
             m_Provenance = provenance;
+        }
+
+        /// <summary>Called by the importer only: H2O's continuum on its own.</summary>
+        public void SetContinuum(float t0, float tRef, float log10DStart, float log10DStep, int count, float[] table)
+        {
+            m_ContinuumT0 = t0;
+            m_ContinuumTRef = tRef;
+            m_ContinuumLog10DStart = log10DStart;
+            m_ContinuumLog10DStep = log10DStep;
+            m_ContinuumCount = count;
+            m_Continuum = table;
+        }
+
+        public bool HasContinuum => m_Continuum != null && m_ContinuumCount >= 2 &&
+                                    m_Continuum.Length == m_ContinuumCount * SubBands;
+
+        /// <summary>
+        /// The continuum's temperature dependence, f(T) = exp(t0 (1/T − 1/tRef)) (Roberts et al. 1976: t0 1800 K,
+        /// tRef 296 K, from the asset): its cross-section is c(ν) f(T) e, so a path's depth is c(ν) D with
+        /// D = Σ f(T) e u over its steps, e in atm and u in molecules cm⁻².
+        /// </summary>
+        public double ContinuumFactor(double temperatureK) =>
+            Math.Exp(m_ContinuumT0 * (1.0 / temperatureK - 1.0 / m_ContinuumTRef));
+
+        /// <summary>
+        /// The sub-band transmissions of H2O's continuum alone along a path of <paramref name="d"/> (atm molecules
+        /// cm⁻², <see cref="ContinuumFactor"/>). Linear in log10 D, clamped above the last entry; below the first, the
+        /// weak limit 1 − τ = (1 − τ(D_first)) D / D_first, as the gases' u. D ≤ 0 gives 1. Exactly as
+        /// bake_atmosphere.continuum_lookup reads it. <paramref name="result"/> takes <see cref="SubBands"/> values.
+        /// </summary>
+        public void ContinuumTransmission(double d, double[] result)
+        {
+            if (d <= 0)
+            {
+                for (int k = 0; k < SubBands; k++)
+                    result[k] = 1.0;
+                return;
+            }
+            double x = (Math.Log10(d) - m_ContinuumLog10DStart) / m_ContinuumLog10DStep;
+            x = Math.Max(0.0, Math.Min(m_ContinuumCount - 1, x));
+            int i = Math.Min((int)Math.Floor(x), m_ContinuumCount - 2);
+            double f = x - i;
+            for (int k = 0; k < SubBands; k++)
+                result[k] = m_Continuum[i * SubBands + k] * (1 - f) + m_Continuum[(i + 1) * SubBands + k] * f;
+
+            double first = Math.Pow(10, m_ContinuumLog10DStart);
+            if (d < first)
+                for (int k = 0; k < SubBands; k++)
+                    result[k] = 1 - (1 - result[k]) * (d / first);
         }
 
         /// <summary>

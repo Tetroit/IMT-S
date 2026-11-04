@@ -7,18 +7,20 @@ using UnityEngine;
 namespace IMT.Thermal
 {
     /// <summary>
-    /// Imports IMTNS/atmosphere/bake_atmosphere.py's output - a .atmosphere file, JSON - as a
+    /// Imports IMTNS/atmosphere/bake_atmosphere.py's output - a .atmosphere file, JSON, thermal-atmosphere/2 - as a
     /// <see cref="ThermalAtmosphere"/>. Checked on import: the format, four sub-bands, ascending grids, each table's
-    /// size and sum (every value read as written), every transmission in [0, 1] and none rising with the amount of gas.
+    /// size and sum (every value read as written), every transmission in [0, 1] and none rising with the amount of gas;
+    /// the same for H2O's continuum table and its D.
     /// </summary>
-    [ScriptedImporter(1, "atmosphere")]
+    [ScriptedImporter(2, "atmosphere")]
     public class ThermalAtmosphereImporter : ScriptedImporter
     {
         // Mirrors of the builder's JSON, field for field: JsonUtility matches names exactly and skips the rest.
 #pragma warning disable 649   // assigned by JsonUtility
         [Serializable] class Provenance { public string built, builder, lines, lines_cite, continuum, continuum_cite, weighting, measured; }
         [Serializable] class GasRow { public string name; public float[] e_atm; public float log10_u_start, log10_u_step; public int log10_u_count; public double table_sum; public float[] table; }
-        [Serializable] class Document { public string format; public Provenance provenance; public float[] bands_cm; public float weight_temperature_K; public float[] p_hPa, t_K; public GasRow[] gases; }
+        [Serializable] class ContinuumRow { public string name; public float t0_K, t_ref_K, log10_d_start, log10_d_step; public int log10_d_count; public double table_sum; public float[] table; }
+        [Serializable] class Document { public string format; public Provenance provenance; public float[] bands_cm; public float weight_temperature_K; public float[] p_hPa, t_K; public GasRow[] gases; public ContinuumRow continuum; }
 #pragma warning restore 649
 
         public override void OnImportAsset(AssetImportContext ctx)
@@ -53,14 +55,16 @@ namespace IMT.Thermal
             }
             var atmosphere = ScriptableObject.CreateInstance<ThermalAtmosphere>();
             atmosphere.Set(doc.bands_cm, doc.weight_temperature_K, doc.p_hPa, doc.t_K, gases, Describe(doc.provenance));
+            ContinuumRow c = doc.continuum;
+            atmosphere.SetContinuum(c.t0_K, c.t_ref_K, c.log10_d_start, c.log10_d_step, c.log10_d_count, c.table);
             ctx.AddObjectToAsset("atmosphere", atmosphere);
             ctx.SetMainObject(atmosphere);
         }
 
         static string Check(Document doc)
         {
-            if (doc == null || doc.format != "thermal-atmosphere/1")
-                return $"format '{doc?.format}', expected thermal-atmosphere/1";
+            if (doc == null || doc.format != "thermal-atmosphere/2")
+                return $"format '{doc?.format}', expected thermal-atmosphere/2";
             if (doc.bands_cm == null || doc.bands_cm.Length != ThermalAtmosphere.SubBands + 1 || !Ascending(doc.bands_cm))
                 return $"needs {ThermalAtmosphere.SubBands + 1} ascending sub-band edges";
             if (!Ascending(doc.p_hPa) || doc.p_hPa.Length < 2 || !Ascending(doc.t_K) || doc.t_K.Length < 2)
@@ -90,6 +94,26 @@ namespace IMT.Thermal
                 if (!(Math.Abs(sum - g.table_sum) <= 1e-6))
                     return $"{g.name}: the values sum to {sum}, the file says {g.table_sum}: some were misread";
             }
+
+            ContinuumRow c = doc.continuum;
+            if (c == null || c.table == null || c.table.Length == 0)
+                return "no continuum: H2O's continuum table is missing";
+            if (c.log10_d_count < 2 || !(c.log10_d_step > 0) || !(c.t0_K > 0) || !(c.t_ref_K > 0))
+                return "continuum: bad axes";
+            if (c.table.Length != c.log10_d_count * ThermalAtmosphere.SubBands)
+                return $"continuum: {c.table.Length} values, expected {c.log10_d_count * ThermalAtmosphere.SubBands}";
+            double total = 0;
+            for (int i = 0; i < c.table.Length; i++)
+            {
+                float v = c.table[i];
+                total += v;
+                if (!(v >= 0f && v <= 1f + 1e-6f))
+                    return $"continuum: transmission {v} at {i} is not in [0, 1]";
+                if (i >= ThermalAtmosphere.SubBands && v > c.table[i - ThermalAtmosphere.SubBands] + 1e-6f)
+                    return $"continuum: transmission rises with D at {i}";
+            }
+            if (!(Math.Abs(total - c.table_sum) <= 1e-6))
+                return $"continuum: the values sum to {total}, the file says {c.table_sum}: some were misread";
             return null;
         }
 

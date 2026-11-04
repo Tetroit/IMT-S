@@ -587,10 +587,16 @@ namespace IMT.Thermal
         /// <item>Each gas's amount in a step: u = x n_air l, molecules cm⁻², with n_air = p / (k_B T) per cm³ and l the
         /// step's length in cm. Mixing ratios x: H2O e / p, CO2 425e-6, N2O 335e-9, CH4 1.95e-6, O3
         /// <c>air.ozone</c>.</item>
-        /// <item>Curtis-Godson: per gas, running sums from the camera of u, u p, u T and u e (e in atm, hPa /
-        /// 1013.25). After each step, each gas's transmission is looked up for the whole path so far,
-        /// <paramref name="atmosphere"/>.Transmission(gas, Σu, Σup / Σu, ΣuT / Σu, Σue / Σu), and the five
-        /// multiplied: τ(through). Never the steps' own transmissions multiplied.</item>
+        /// <item>Curtis-Godson: per gas, running sums from the camera of u, u p and u T. After each step, each gas's
+        /// transmission is looked up for the whole path so far, <paramref name="atmosphere"/>.Transmission(gas, Σu,
+        /// Σup / Σu, ΣuT / Σu, 0), and the five multiplied: τ(through). Never the steps' own transmissions
+        /// multiplied.</item>
+        /// <item>H2O split (thermal-atmosphere/2, decided 2026-11-03): its lines are the gas "H2O lines" (no e axis), and
+        /// its continuum comes on its own, by a running sum D = Σ f(T) e u over the steps: f =
+        /// <paramref name="atmosphere"/>.ContinuumFactor(T), T and e the step's air at its middle (e in atm, hPa /
+        /// 1013.25), u the step's H2O. <paramref name="atmosphere"/>.ContinuumTransmission(D) multiplies τ(through)
+        /// too. (The joint H2O table this replaced, looked up at the u-weighted T, put the sky 21 NETD too bright: the
+        /// continuum grows as the air cools and should weigh T by e u.)</item>
         /// <item>The step's own radiance, B linear in its own depth: t = τ(through) / τ(above), d = −ln t, and
         /// L += τ(above) [B0 (1 − t) + (B1 − B0) (1 − t (1 + d)) / d], B0 and B1 the sub-band radiance
         /// (<paramref name="subBandRadiance"/>) at the air temperatures of the step's camera end and far end. Under
@@ -605,7 +611,7 @@ namespace IMT.Thermal
             double sinElevation, double[] ranges, Action<double, double[]> subBandRadiance,
             double[] tau, double[] path)
         {
-            int H2O = atmosphere.GasIndex("H2O");
+            int H2O = atmosphere.GasIndex("H2O lines");
             int CO2 = atmosphere.GasIndex("CO2");
             int O3 = atmosphere.GasIndex("O3");
             int N2O = atmosphere.GasIndex("N2O");
@@ -620,7 +626,6 @@ namespace IMT.Thermal
             double waterAmount = 0;
             double waterAmountPressure = 0;
             double waterAmountTemperature = 0;
-            double waterAmountPartialPressure = 0;
 
             tau[0] = 1;
             tau[1] = 1;
@@ -637,6 +642,8 @@ namespace IMT.Thermal
             double[] one = new double[4] { 0, 0, 0, 0 };
             double[] b0 = new double[4] { 0, 0, 0, 0 };
             double[] b1 = new double[4] { 0, 0, 0, 0 };
+
+            double D = 0;
 
             for (int m = 0; m < ranges.Length - 1; ++m)
             {
@@ -677,10 +684,15 @@ namespace IMT.Thermal
                     waterAmount += waterStep;
                     waterAmountPressure += waterStep * p;
                     waterAmountTemperature += waterStep * T;
-                    waterAmountPartialPressure += waterStep * (e / 1013.25);
                     atmosphere.Transmission(H2O, waterAmount, waterAmountPressure / waterAmount,
-                        waterAmountTemperature / waterAmount, waterAmountPartialPressure / waterAmount, one);
+                        waterAmountTemperature / waterAmount, 0, one);
+
+                    for (int k = 0; k < 4; k++)
+                        through[k] *= one[k];
                     
+                    D += atmosphere.ContinuumFactor(T) * (e / 1013.25) * waterStep;
+                    
+                    atmosphere.ContinuumTransmission(D, one);
                     for (int k = 0; k < 4; k++)
                         through[k] *= one[k];
                     
